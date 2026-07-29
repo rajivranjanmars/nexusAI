@@ -1,0 +1,86 @@
+# Environments
+.env*
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*.py[co]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+.mypy_cache/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+.coverage
+.pytest_cache/
+.tox/
+.hypothesis/
+node_modules/
+
+# Cache directories
+.cache/
+.huggingface/
+.transformers/
+
+# Documentation
+*.md
+docs/*.html
+
+# Secrets
+**/*.pem
+**/credentials.json
+token.txt
+
+# Temporary files
+*.tmp
+*.temp
+.aider*
+
+# Personal setup & local dev environment (credentials, configs, IDE settings)
+_personal-setup/
+scripts/app_keypairs/lpu-distance-education/app_credentials.json
+scripts/app_keypairs/lpude/app_credentials.json
+.codegraph/config.json
+.claude/settings.local.json
+scripts/admin_keypair/app_id.txt
+scripts/signedtoken.py
+scripts/signedtoken.py
+scripts/*
+scripts/signedtoken.py
+
+
+reports/*
+.clinerules
+.repowise
+graphify-out
+
+# Monitoring stack (separate git repo)
+monitoring-stack/
+load_test_report.json
+scratch/app_credentials.json
+
+RAG-lpude.json
+RAG-lpuonline.json

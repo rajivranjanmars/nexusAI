@@ -1,0 +1,151 @@
+apps:
+- name: LMSBuddy
+  app_id: 634b4ff8-16ca-4856-8a0e-7d31694a6418
+  api_key: lpuai_72Ifgh9-dHTzkfwbS5HtPfS4gElKUZ0vR2i1b5KJ18Q
+  allowed_workflows:
+  - student_grade_inquiry
+  - enrollment
+  - policy_lookup
+  - resource_request
+  - data_mutation
+  - general
+  allowed_tools:
+  - detect_workflow
+  - get_context
+  - get_student
+  - build_context
+  - update_student
+  rate_limit_rpm: 120
+  token_quota_monthly: 1000000
+  cache_ttl_seconds: 3600
+  app_config:
+    theme: dark
+    primary_color: '#6366F1'
+    secondary_color: '#8B5CF6'
+    accent_color: '#22D3EE'
+    font_family: Inter
+    icon: chat-bubble
+    border_radius: 12px
+    header_title: LPU Online
+    header_badge: Buddy
+    search_label: Ask LPU Buddy
+    search_hint: "Enter to send \xC2\xB7 Esc to cancel"
+    empty_recents: No recent chats yet. Start a conversation below.
+    empty_sidebar: No chats yet
+    fun_text: We've been trained to help you with student questions 24 x 7.
+    placeholders:
+    - Ask about your courses, fees, or exams
+    - Need help with results or attendance?
+    - Tell me what you want to check today
+    - Let us solve it together
+    - What would you like to understand next?
+    - Ask LPU Buddy anything about your student journey
+    quick_actions:
+    - iconKey: courses
+      title: My Courses
+      prompt: Give me a quick overview of my current courses and what I should focus
+        on this week.
+    - iconKey: attendance
+      title: Attendance
+      prompt: Help me understand how to check my attendance and stay above the minimum
+        requirement.
+    - iconKey: exams
+      title: Exams
+      prompt: What should I review first if I want to prepare for my upcoming exams?
+    - iconKey: results
+      title: Results
+      prompt: Explain how I can review my latest results and what they mean for my
+        progress.
+    - iconKey: fees
+      title: Fee Status
+      prompt: Show me what I should check when reviewing my university fee status.
+    - iconKey: campus
+      title: Campus
+      prompt: Tell me what student services and campus resources I should know about
+        right now.
+    data_resolvers:
+    - resolver: student_profile
+      key: student
+      requires_actor: true
+  metadata:
+    owner: Platform Team
+    description: Primary student-facing interface for academic queries
+- name: Payments Auditor
+  app_id: a1b2c3d4-e5f6-4a5b-8c9d-0123456789ab
+  api_key: lpuai_fin_99xY72pL902MnBvCxZqW12ErTyUioPkL
+  allowed_workflows:
+  - general
+  - policy_lookup
+  - resource_request
+  - data_mutation
+  allowed_tools:
+  - get_student
+  - detect_workflow
+  - get_context
+  - get_student
+  - build_context
+  rate_limit_rpm: 60
+  token_quota_monthly: 500000
+  cache_ttl_seconds: 1800
+  app_config:
+    theme: light
+    primary_color: '#10B981'
+    icon: shield-check
+  metadata:
+    owner: Finance Team
+    description: Internal tool for auditing student financial records
+- name: LMS Online
+  app_id: eeb89f58-27df-4ec7-8693-32a9f8b110eb
+  api_key: lpuai_lqTEvp2NSb8G0c0UpAdqS062lGkW5QUtYKeNbhFu
+  allowed_workflows:
+  - general
+  allowed_tools:
+  - get_student
+  rate_limit_rpm: 60
+  token_quota_monthly: 1000000
+  cache_ttl_seconds: 3600
+  app_config:
+    theme: light
+    primary_color: '#6366F1'
+    icon: application
+  metadata:
+    owner: QA Team
+    description: Temporary test application
+- name: LMSTutor
+  app_id: 35c27359-59e5-4449-ac4a-23b4a2f2c36d
+  api_key: lpuai_ixqO66iGDRKvvwQir6GSlH151Plo5sbmXUcq6Zvh
+  allowed_workflows:
+  - student_grade_inquiry
+  allowed_tools:
+  - detect_worfklow
+  rate_limit_rpm: 100
+  token_quota_monthly: 1000000
+  cache_ttl_seconds: 3600
+  app_config:
+    theme: light
+    primary_color: '#6366F1'
+    icon: application
+  metadata:
+    owner: LPUOnline
+    description: generic lpuonline-bot
+- name: Sample JSON App
+  app_id: 5015380e-666f-46f9-9864-4d11db3ceac0
+  api_key: lpuai_7BekxhZlGxwJFDnregjuM2pwixdGwwUXTVM02f3Q
+  allowed_workflows:
+  - general
+  - math_tutor
+  - lead_capture 
+  allowed_tools:
+  - detect_workflow
+  - get_context
+  - ask_question
+  rate_limit_rpm: 120
+  token_quota_monthly: 2000000
+  cache_ttl_seconds: 7200
+  app_config:
+    theme: dark
+    primary_color: '#10B981'
+    icon: robot
+  metadata:
+    owner: Data Science Team
+    description: An example application definition for bulk registration

@@ -1,0 +1,64 @@
+// Grafana Alloy config — ships backend_proxy and mcp_server logs to Loki.
+// LOKI_PUSH_URL env var points to your Loki instance (local or remote).
+
+discovery.docker "nexus" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "name"
+    values = ["backend_proxy", "mcp_server"]
+  }
+}
+
+discovery.relabel "nexus" {
+  targets = discovery.docker.nexus.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/([^_]+).*"
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "nexus" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.nexus.output
+  forward_to = [loki.process.nexus.receiver]
+}
+
+loki.process "nexus" {
+  stage.json {
+    expressions = {
+      level          = "levelname",
+      logger         = "name",
+      correlation_id = "correlation_id",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level   = "",
+      service = "",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      correlation_id = "",
+      logger         = "",
+    }
+  }
+
+  forward_to = [loki.write.remote.receiver]
+}
+
+loki.write "remote" {
+  endpoint {
+    url = env("LOKI_PUSH_URL")
+  }
+}

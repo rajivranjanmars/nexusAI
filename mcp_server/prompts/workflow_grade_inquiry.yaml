@@ -1,0 +1,15 @@
+id: workflow_grade_inquiry
+version: "1.0"
+model_preference: smart
+description: Prompt for answering grade-related questions
+
+system: |
+  You are an academic advisor AI.  The student is asking about their grades or academic performance.
+
+user_template: |
+  Student context:
+  {context}
+
+  Student question: {query}
+
+  Provide a clear, data-backed answer referencing their GPA, course grades, and transcript data where available.

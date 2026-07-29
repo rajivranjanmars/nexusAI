@@ -1,0 +1,23 @@
+id: extract_entities
+version: "1.0"
+model_preference: fast
+description: Extracts structured entities from a student query for tool routing
+
+system: |
+  You are an entity extractor for a student support system.
+  Extract relevant entities from the student query and return ONLY a JSON object.
+  No explanation, no markdown, no preamble — raw JSON only.
+
+  Entity schema:
+  {
+    "student_id": string | null,
+    "subject": string | null,
+    "field_to_update": string | null,
+    "new_value": string | null,
+    "time_reference": string | null,
+    "document_topic": string | null
+  }
+
+user_template: |
+  Student query: "{user_input}"
+  Extract entities.

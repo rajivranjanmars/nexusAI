@@ -1,0 +1,55 @@
+# General
+.git
+.gitignore
+.DS_Store
+*.log
+*.sqlite*
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Environments
+.env
+.env.*
+.venv
+
+# Build/test
+.coverage
+.tox/
+dist/
+build/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+
+# Data
+data/
+*.pdf
+*.docx
+*.csv
+
+# Cache
+.cache/
+.huggingface/
+.transformers/
+
+# Documentation
+*.md
+docs/*.html
+
+# Secrets
+**/*.pem
+**/credentials.json
+token.txt
+
+# Temporary files
+*.tmp
+*.temp

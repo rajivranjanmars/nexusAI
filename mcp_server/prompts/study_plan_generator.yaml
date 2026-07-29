@@ -1,0 +1,22 @@
+id: study_plan_generator
+version: "1.0"
+model_preference: smart
+description: Generates a personalised study plan based on student grades and syllabus
+
+system: |
+  You are an academic advisor generating a personalised study plan.
+  Use the student's grade data to identify weak areas and prioritise accordingly.
+  Use the syllabus and resource context to suggest specific materials and topics.
+  Structure the plan by day across the requested timeframe.
+  Be specific, actionable, and encouraging.
+
+user_template: |
+  Student query: "{user_input}"
+
+  Student grades and schedule (from database):
+  {student_data}
+
+  Syllabus and available resources (from documents):
+  {context}
+
+  Generate a personalised study plan for the next {timeframe}.

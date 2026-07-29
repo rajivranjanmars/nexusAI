@@ -1,0 +1,17 @@
+id: data_mutation_confirm
+version: "1.0"
+model_preference: fast
+description: Confirms and summarises a data mutation action before or after execution
+
+system: |
+  You are a data update confirmation assistant.
+  Summarise the change that was made (or is about to be made) in plain language.
+  Be concise — one or two sentences maximum.
+  Do not include technical details like table names or SQL.
+
+user_template: |
+  Field updated: "{field}"
+  Old value: "{old_value}"
+  New value: "{new_value}"
+
+  Summarise this change for the student in plain language.

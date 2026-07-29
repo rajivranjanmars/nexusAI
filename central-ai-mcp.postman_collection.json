@@ -1,0 +1,1340 @@
+{
+  "info": {
+    "_postman_id": "5251a411-b254-4ac6-a58a-5088160fcee1",
+    "name": "central-ai-mcp",
+    "description": "LPU Nexus — Central AI Module API Collection.\n\nRecommended workflow:\n1. Run **Apps (Admin) / Bootstrap New App (PKI)** to create an app and capture `app_id`, `private_key`, and `public_key`.\n2. For production-style auth, run **Auth / Get App Token (PKI)** or **Auth / Get App User Token** with a backend-minted `signed_token`.\n3. For development tooling only, use **Auth / Get App User Token (Dev Convenience)** or **Auth / Get Admin Token (Dev Convenience)**.\n4. Use saved variables (`{{access_token}}`, `{{access_token}}`, `{{app_id}}`) in downstream requests.\n\nVariables expected in your Postman Environment:\n- `base_url` (default: `http://localhost:5123`)\n- `admin_key` — value of `PROXY_ADMIN_LOGIN_PASSWORD` from .env\n- `access_token` — populated by test script\n- `refresh_token` — populated by test script\n- `access_token` — populated by test script\n- `app_id` — populated by bootstrap/register requests\n- `app_private_key` — populated by bootstrap request\n- `app_public_key` — populated by bootstrap request\n- `job_id` — populated by RAG crawl request",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "53539765",
+    "_collection_link": "https://go.postman.co/collection/53539765-5251a411-b254-4ac6-a58a-5088160fcee1?source=collection_link"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5123",
+      "type": "string"
+    },
+    {
+      "key": "admin_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "app_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "app_private_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "app_public_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Version Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/version",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health",
+                "version"
+              ]
+            },
+            "description": "Unauthenticated health + version check. Returns proxy status, version, and downstream MCP target URL."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Get App Token (PKI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store access_token\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"access_token\");",
+                  "  pm.environment.set(\"access_token\", json.access_token);",
+                  "  if (json.refresh_token) pm.environment.set(\"refresh_token\", json.refresh_token);",
+                  "  if (json.token_type) pm.environment.set(\"token_type\", json.token_type);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Origin",
+                "value": "https://finance.lpu.in"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"signed_token\": \"<ES256-signed-JWT-from-app-private-key>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/app-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "app-token"
+              ]
+            },
+            "description": "Exchange an app-signed ES256 JWT (signed with the app's private key registered via /api/apps/register) for proxy access + refresh tokens.\n\nThe `signed_token` is a JWT signed with your application's ES256 private key. The proxy verifies it against the stored public key.\n\nResponse includes `access_token`, `refresh_token`, `app_config`, and any resolved `data` from configured data_resolvers."
+          },
+          "response": []
+        },
+        {
+          "name": "Get App User Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store access_token from app-user token endpoint\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"access_token\");",
+                  "  pm.environment.set(\"access_token\", json.access_token);",
+                  "  if (json.refresh_token) pm.environment.set(\"refresh_token\", json.refresh_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"signed_token\": \"<short-lived-ES256-signed-JWT-from-app-backend>\",\n  \"force_workflow\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/app-user-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "app-user-token"
+              ]
+            },
+            "description": "Browser-safe app-user token exchange. Your app backend mints a short-lived ES256 `signed_token` and the client exchanges it here.\n\nOptional `force_workflow` locks the issued token to a specific workflow (e.g. `lead_capture`). Must be in the app's `allowed_workflows`. All subsequent `/api/chat/message` calls with this token will use that workflow without needing to specify it per-message."
+          },
+          "response": []
+        },
+        {
+          "name": "Get App User Token (Dev Convenience)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store access_token from dev convenience endpoint\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"access_token\");",
+                  "  pm.environment.set(\"access_token\", json.access_token);",
+                  "  if (json.refresh_token) pm.environment.set(\"refresh_token\", json.refresh_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"private_key\": \"{{app_private_key}}\",\n  \"actor_id\": \"STU123\",\n  \"actor_type\": \"student\",\n  \"origin\": \"https://finance.lpu.in\",\n  \"force_workflow\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/dev/app-user-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "dev",
+                "app-user-token"
+              ]
+            },
+            "description": "Development-only convenience endpoint. Provide `app_id`, the PEM `private_key`, and actor details; the proxy signs the short-lived app JWT internally and returns proxy access + refresh tokens.\n\nOptional `force_workflow` locks the issued token to a specific workflow (e.g. `lead_capture`). Must be in the app's `allowed_workflows`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Admin Token (Dev Convenience)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store access_token\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"access_token\");",
+                  "  pm.environment.set(\"access_token\", json.access_token);",
+                  "  if (json.refresh_token) pm.environment.set(\"admin_refresh_token\", json.refresh_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"private_key\": \"{{app_private_key}}\",\n  \"actor_id\": \"ADMIN001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/dev/admin-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "dev",
+                "admin-token"
+              ]
+            },
+            "description": "Development-only convenience endpoint for admin tooling. Provide the admin app's `app_id` and PEM `private_key`; the proxy signs the short-lived app JWT internally and returns an admin-scoped token."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Exchange a valid refresh JWT for a new access token. Does not require bearer auth — just the refresh token in the body."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Apps (Admin)",
+      "item": [
+        {
+          "name": "Bootstrap New App (PKI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store bootstrapped app credentials\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"app_id\");",
+                  "  pm.environment.set(\"app_id\", json.app_id);",
+                  "  if (json.private_key) pm.environment.set(\"app_private_key\", json.private_key);",
+                  "  if (json.public_key) pm.environment.set(\"app_public_key\", json.public_key);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{admin_key}}",
+                "description": "Value of PROXY_ADMIN_LOGIN_PASSWORD from .env"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Finance Portal\",\n  \"domain\": \"https://finance.lpu.in\",\n  \"allowed_workflows\": [\"general\"],\n  \"allowed_tools\": [\"detect_workflow\", \"get_student\", \"chat_complete\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/apps/bootstrap",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "apps",
+                "bootstrap"
+              ]
+            },
+            "description": "One-shot PKI bootstrap. The proxy generates an ES256 keypair, registers the app, and returns `app_id`, `private_key`, and `public_key`. Postman stores the returned values in environment variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Register New App",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store registered app_id\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"app_id\");",
+                  "  pm.environment.set(\"app_id\", json.app_id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{admin_key}}",
+                "description": "Value of PROXY_ADMIN_LOGIN_PASSWORD from .env"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"LMS Portal\",\n  \"domain\": \"https://lms.lpu.in\",\n  \"public_key\": \"-----BEGIN PUBLIC KEY-----\\n<base64-encoded-ES256-public-key>\\n-----END PUBLIC KEY-----\",\n  \"allowed_workflows\": [\"general\", \"lead_capture\"],\n  \"allowed_tools\": [\"detect_workflow\", \"get_student\", \"chat_complete\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/apps/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "apps",
+                "register"
+              ]
+            },
+            "description": "Dynamically register a new application into the Proxy DB.\n\nRequires the `x-admin-key` header (value = `PROXY_ADMIN_LOGIN_PASSWORD` env var).\n\nThe `public_key` must be a PEM-formatted ES256 public key. The registered app can then sign JWTs with the corresponding private key to call `/api/auth/app-token`.\n\nReturns `app_id` which should be recorded for app management."
+          },
+          "response": []
+        },
+        {
+          "name": "List Registered Apps",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/apps?include_inactive=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "apps"
+              ],
+              "query": [
+                {
+                  "key": "include_inactive",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "List all registered applications. Requires an admin bearer token."
+          },
+          "response": []
+        },
+        {
+          "name": "Get App Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/apps/{{app_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "apps",
+                "{{app_id}}"
+              ]
+            },
+            "description": "Get the full admin view of a single app, including public key, app_config, and metadata."
+          },
+          "response": []
+        },
+        {
+          "name": "Update App",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allowed_tools\": [\"detect_workflow\", \"get_student\", \"chat_complete\"],\n  \"rate_limit_rpm\": 120,\n  \"cache_ttl_seconds\": 3600,\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/apps/{{app_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "apps",
+                "{{app_id}}"
+              ]
+            },
+            "description": "Patch app metadata, tool/workflow allowlists, quotas, and activation state."
+          },
+          "response": []
+        },
+        {
+          "name": "Activate App",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/apps/{{app_id}}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "apps",
+                "{{app_id}}",
+                "activate"
+              ]
+            },
+            "description": "Set `is_active=true` for the selected app."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate App",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/apps/{{app_id}}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "apps",
+                "{{app_id}}",
+                "deactivate"
+              ]
+            },
+            "description": "Set `is_active=false` for the selected app without deleting it."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What are the admission requirements for B.Tech CSE?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/message",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chat",
+                "message"
+              ]
+            },
+            "description": "Main chat endpoint. Runs the full LangGraph pipeline:\n\n1. Intent classification (fast model) — skipped if token has `force_workflow`\n2. Semantic cache lookup\n3. Data fetch (student record, RAG context)\n4. Context building\n5. LLM reasoning (smart model)\n6. Cache store\n\nWorkflow routing is controlled at the token level via `force_workflow` (set during token issuance), NOT per-message.\n\nResponse includes `response` text, `workflow` name, `cache_hit` flag, and optional `lead_progress` for lead-capture workflows."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "MCP Tools",
+      "item": [
+        {
+          "name": "Call Tool (get_student)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"arguments\": {\n    \"student_id\": \"STU123\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/mcp/tools/get_student",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "mcp",
+                "tools",
+                "get_student"
+              ]
+            },
+            "description": "Directly call an allowlisted MCP tool through the proxy.\n\nThe tool must be in the `allowed_tools` list for the calling app (embedded in the JWT). The proxy enforces ownership — non-admin users can only query their own `student_id`.\n\nReplace `get_student` in the URL with any other allowlisted tool name."
+          },
+          "response": []
+        },
+        {
+          "name": "Call Tool (detect_workflow)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"arguments\": {\n    \"user_input\": \"I want to apply for a scholarship\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/mcp/tools/detect_workflow",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "mcp",
+                "tools",
+                "detect_workflow"
+              ]
+            },
+            "description": "Classify user intent into a workflow name using the fast LLM model."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "RAG (Admin)",
+      "item": [
+        {
+          "name": "Trigger Website Crawl",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Store crawl job_id\", function () {",
+                  "  const json = pm.response.json();",
+                  "  if (json.job_id) pm.environment.set(\"job_id\", json.job_id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"seed_url\": \"https://www.lpu.in/\",\n  \"max_depth\": 2,\n  \"allowed_paths\": [\"/admissions\", \"/programmes\", \"/fees\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/rag/crawl",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "crawl"
+              ]
+            },
+            "description": "Trigger an async BFS website crawl to populate the RAG knowledge base for a given `app_id`.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nThe crawler:\n- Stays within the same domain as `seed_url`\n- Skips binary assets (.pdf, .jpg, .css, .js, etc.)\n- Uses Trafilatura for content extraction (falls back to BeautifulSoup)\n- Rate-limits itself (500ms delay, max 5 concurrent)\n\n`allowed_paths` optionally restricts crawling to specific URL path prefixes.\n\nReturns a `job_id` — poll `/api/rag/status/{job_id}` to track progress."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest URL",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"source_type\": \"url\",\n  \"source_ref\": \"https://www.lpu.in/admissions/btech.php\",\n  \"content\": \"https://www.lpu.in/admissions/btech.php\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/rag/ingest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "ingest"
+              ]
+            },
+            "description": "Ingest a single URL into the RAG knowledge base for a given `app_id`.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nThe pipeline: fetch → extract text → SHA-256 dedup check → chunk (512 tok / 64 overlap) → embed → upsert to ChromaDB."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest File (PDF/DOCX)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"source_type\": \"file\",\n  \"source_ref\": \"prospectus-2025.pdf\",\n  \"content\": \"<base64-encoded-file-bytes>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/rag/ingest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "ingest"
+              ]
+            },
+            "description": "Ingest a file (PDF, DOCX, or plain text) into the RAG knowledge base.\n\n**Requires admin JWT** (`{{access_token}}`).\n\n`content` must be base64-encoded bytes of the file. Supported formats:\n- `.pdf` — text extracted via PyPDF\n- `.docx` — text extracted via python-docx\n- Any other extension — decoded as UTF-8 plain text"
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest Structured Data",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"source_type\": \"structured\",\n  \"source_ref\": \"fee-structure-2025\",\n  \"content\": \"[{\\\"programme\\\": \\\"B.Tech CSE\\\", \\\"annual_fee\\\": \\\"180000\\\", \\\"duration\\\": \\\"4 years\\\"}, {\\\"programme\\\": \\\"MBA\\\", \\\"annual_fee\\\": \\\"150000\\\", \\\"duration\\\": \\\"2 years\\\"}]\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/rag/ingest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "ingest"
+              ]
+            },
+            "description": "Ingest structured knowledge with native JSON records.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nPreferred fields:\n- `records`: array of objects to flatten into ingest text\n- `source_url`: canonical source link for citations\n\nBackward compatible:\n- `content`: JSON string containing an object or array\n\nArray records are flattened into `key: value | key: value` rows before chunking."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Crawl Job Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rag/status/{{job_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rag",
+                "status",
+                "{{job_id}}"
+              ]
+            },
+            "description": "Poll the status of a crawl job created by `POST /api/rag/crawl`.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nSet `{{job_id}}` in your environment to the `job_id` returned by the crawl endpoint.\n\nStatus lifecycle: `queued` → `processing` → `done` | `failed`\n\nResponse includes `pages_found`, `pages_skipped`, `pages_failed`, `chunks_upserted`, start/end timestamps, and any `error` message."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Observability (Admin)",
+      "item": [
+        {
+          "name": "Token Usage Summary",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/tokens/summary?period=30d",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "tokens",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "30d",
+                  "description": "Filter period: today, 7d, 30d, or all"
+                },
+                {
+                  "key": "app_id",
+                  "value": "{{app_id}}",
+                  "description": "Optional: filter by app",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Aggregated token usage analytics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nQuery params:\n- `period`: `today` | `7d` | `30d` | `all`\n- `app_id` (optional): restrict to a single app\n\nReturns total calls, total tokens (prompt/completion/total), total cost (USD), average latency, and breakdowns by model and by action."
+          },
+          "response": []
+        },
+        {
+          "name": "Token Usage By App",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/tokens/by-app/{{app_id}}?period=30d",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "tokens",
+                "by-app",
+                "{{app_id}}"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "30d",
+                  "description": "Filter period: today, 7d, 30d, or all"
+                }
+              ]
+            },
+            "description": "Daily token usage breakdown for a specific app.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns an array of `{ date, calls, tokens, cost_usd }` for each day in the period."
+          },
+          "response": []
+        },
+        {
+          "name": "Recent Token Usage",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/tokens/recent?limit=50&offset=0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "tokens",
+                "recent"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Max items per page (1–500)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "app_id",
+                  "value": "{{app_id}}",
+                  "description": "Optional: filter by app",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Paginated list of individual LLM invocations.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nEach item includes timestamp, app_id, actor_id, model, token counts, estimated cost, latency, and action label."
+          },
+          "response": []
+        },
+        {
+          "name": "RAG Knowledge Stats (Global)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/rag/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "rag",
+                "stats"
+              ]
+            },
+            "description": "Global RAG knowledge store statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns total chunks across all apps, total apps with data, and a per-app breakdown with chunk counts, source types, and unique source count."
+          },
+          "response": []
+        },
+        {
+          "name": "RAG Knowledge Stats (By App)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/rag/stats/{{app_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "rag",
+                "stats",
+                "{{app_id}}"
+              ]
+            },
+            "description": "Per-app RAG knowledge store statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns chunk count, source type breakdown (crawl/file/structured), and unique source count for the specified app."
+          },
+          "response": []
+        },
+        {
+          "name": "Cache Stats (Global)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/cache/stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "cache",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "app_id",
+                  "value": "{{app_id}}",
+                  "description": "Optional: filter by app",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Semantic response cache statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns total entries, active (non-expired) entries, total hits, and the top 10 most-hit cached questions."
+          },
+          "response": []
+        },
+        {
+          "name": "Cache Stats (By App)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/cache/stats/{{app_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "cache",
+                "stats",
+                "{{app_id}}"
+              ]
+            },
+            "description": "Per-app semantic response cache statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nSame shape as global cache stats, but filtered to a single app."
+          },
+          "response": []
+        },
+        {
+          "name": "LLM Health Check",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/llm/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "llm",
+                "health"
+              ]
+            },
+            "description": "LLM provider health check.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nSends a trivial `ping` completion to the configured LLM provider and reports:\n- `status`: `ok` or `error`\n- `model`: the fast model used for the test\n- `latency_ms`: round-trip time in milliseconds\n- `error`: error message if the check failed"
+          },
+          "response": []
+        },
+        {
+          "name": "LLM Cost Map",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/observability/llm/cost-map",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "observability",
+                "llm",
+                "cost-map"
+              ]
+            },
+            "description": "Return the active LLM cost configuration.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nShows the effective pricing map used for cost estimation. Merges defaults with any overrides from the `LLM_COST_MAP` environment variable.\n\nPrices are in USD per 1M tokens, split by `input` and `output`."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

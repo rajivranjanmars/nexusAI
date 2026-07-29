@@ -1,0 +1,156 @@
+# Central AI Module - ARM64 (Apple Silicon / AWS Graviton / Oracle Ampere)
+# Usage: docker compose -f docker-compose.arm64.yml up -d --build
+services:
+  backend_proxy:
+    image: mcp-ai-lean
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp.arm64
+      args:
+        - GIT_BRANCH=${GIT_BRANCH:-local}
+        - GIT_COMMIT_SHA=${GIT_COMMIT_SHA:-unknown}
+        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-}
+    command: [ "python", "-m", "backend_proxy.main" ]
+    ports:
+      - "${PROXY_HOST_PORT:-5123}:5123"
+    volumes:
+      - chroma_data:/app/data/chroma_db
+    env_file:
+      - .env
+    networks:
+      # default: internal traffic to mcp_server/redis. dokploy-network: lets
+      # Dokploy's Traefik reach this container to serve the public domain.
+      - default
+      - dokploy-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      pgvector:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5123/health/version')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mcp_server:
+    image: mcp-ai-lean
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp.arm64
+      args:
+        - GIT_BRANCH=${GIT_BRANCH:-local}
+        - GIT_COMMIT_SHA=${GIT_COMMIT_SHA:-unknown}
+        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-}
+    ports:
+      - "${MCP_SERVER_HOST_PORT:-8000}:8000"
+    volumes:
+      - chroma_data:/app/data/chroma_db
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(5); s.connect(('127.0.0.1', 8000)); s.close()" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  db_init:
+    image: mcp-ai-lean
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp.arm64
+    command: [ "sh", "-c", "python -c \"import asyncio; from db.seed import ensure_db_exists; asyncio.run(ensure_db_exists())\" && alembic upgrade head && python -m db.seed && python -m db.app_sync && (if [ -n \"$ADMIN_EMAIL\" ] && [ -n \"$ADMIN_PASSWORD\" ]; then python -m db.seed_admin; else echo 'Skipping admin seed (ADMIN_EMAIL/ADMIN_PASSWORD not set)'; fi)" ]
+    volumes:
+      - chroma_data:/app/data/chroma_db
+    env_file:
+      - .env
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    restart: "no"
+
+  redis:
+    image: public.ecr.aws/docker/library/redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgvector:
+    image: pgvector/pgvector:pg15
+    ports:
+      - "${PGVECTOR_HOST_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: lpuai
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  admin_panel:
+    build:
+      context: ./admin_portal
+      dockerfile: Dockerfile
+    ports:
+      - "${ADMIN_PANEL_HOST_PORT:-5173}:5173"
+    environment:
+      - VITE_BACKEND_URL=http://backend_proxy:5123
+    depends_on:
+      backend_proxy:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./admin_portal/src:/app/src
+      - ./admin_portal/public:/app/public
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    profiles: [ "monitoring" ]
+    volumes:
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    environment:
+      LOKI_PUSH_URL: ${LOKI_PUSH_URL:-http://loki:3100/loki/api/v1/push}
+    command: run /etc/alloy/config.alloy
+    restart: unless-stopped
+    networks:
+      - default
+      - monitoring
+    depends_on:
+      - backend_proxy
+      - mcp_server
+
+volumes:
+  redis_data:
+  chroma_data:
+  pgvector_data:
+
+networks:
+  default: {}
+  dokploy-network:
+    external: false
+  monitoring:
+    external: false
+    name: monitoring-stack_default

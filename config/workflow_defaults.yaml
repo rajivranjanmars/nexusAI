@@ -1,0 +1,214 @@
+version: "1.0"
+
+labels:
+  - student_grade_inquiry
+  - enrollment
+  - policy_lookup
+  - resource_request
+  - data_mutation
+  - admission_inquiry
+  - general
+  - lead_capture
+
+confidence_threshold: 0.6
+
+response_styles:
+  detailed:
+    include_sources: true
+    max_rag_chars: 6000
+    format_instructions: "Always present the answer as crisp bullet points — one fact per line (fees, dates, requirements, etc.). Avoid long paragraphs. Keep the tone warm and helpful; a short one-line intro or closing is fine if it aids clarity."
+
+  concise:
+    include_sources: false
+    max_rag_chars: 2000
+    format_instructions: "Always answer using short, crisp bullet points (max 3-4 lines) instead of paragraphs. Keep the tone warm and helpful even though the format is brief."
+
+  balanced:
+    include_sources: true
+    max_rag_chars: 4000
+    format_instructions: "Always present factual details and key information as bullet points. Keep answers concise, well-structured, and easy to scan, while staying warm and helpful in tone."
+
+  triage:
+    include_sources: false
+    max_rag_chars: 1200
+    format_instructions: "Provide short, natural replies that quickly clarify intent and move the conversation forward."
+
+workflow_response_config:
+  admission_inquiry:
+    default_style: "detailed"
+    include_sources: true
+    max_rag_chars: 3200
+    history_limit: 4
+  lead_capture:
+    default_style: "concise"
+    include_sources: false
+    max_rag_chars: 500
+    history_limit: 5
+    system_suffix: "You are collecting lead details quickly and warmly. Do not answer admissions questions — redirect and ask for the next missing field."
+  general:
+    default_style: "detailed"
+    include_sources: true
+    max_rag_chars: 6000
+    history_limit: 20
+    system_suffix: "This is the parent conversational workflow. Keep replies short, helpful, and natural. Use it to greet, clarify, and understand intent. Funnel university, admissions, program, eligibility, fee, and application queries toward the enrollment workflow as soon as the intent becomes clear."
+  student_grade_inquiry:
+    default_style: "balanced"
+    include_sources: true
+    max_rag_chars: 4000
+    history_limit: 6
+  enrollment:
+    default_style: "concise"
+    include_sources: true
+    max_rag_chars: 6000
+    history_limit: 20
+    system_suffix: "This is the primary workflow for admissions, programs, eligibility, fees, scholarships, and university process questions. Answer using concise bullet points from institutional context when available. If the user shows strong interest in applying, speaking to a counselor, getting a brochure, or sharing personal details, guide the conversation naturally toward lead capture."
+  policy_lookup:
+    default_style: "detailed"
+    include_sources: true
+    max_rag_chars: 5000
+    history_limit: 6
+  resource_request:
+    default_style: "balanced"
+    include_sources: true
+    max_rag_chars: 4000
+    history_limit: 6
+  data_mutation:
+    default_style: "concise"
+    include_sources: false
+    max_rag_chars: 2000
+    history_limit: 4
+
+rules:
+  lead_capture:
+    keywords: [apply now, apply today, brochure, brochure pdf, call me, contact me, counselor, counselling, counselling call, callback, enroll me, help me apply, talk to someone, speak to someone, connect me]
+  student_grade_inquiry:
+    keywords: [gpa, grade, score, transcript, marks]
+  policy_lookup:
+    keywords: [policy, deadline, deadlines, rules, withdraw, withdrawal]
+  enrollment:
+    keywords: [admission, admissions, apply, application, eligibility, eligible, programme, programmes, program, programs, course, courses, fee, fees, scholarship, scholarships, university, college, online degree, distance education, enrollment, enroll, registration, register, intake, semester, interested in admission, interested in mba, interested in bba, interested in bca, interested in mca, interested in bcom, interested in mcom, mba fee, bba fee, mca fee, graduate programs, undergraduate programs, diploma programs]
+  resource_request:
+    keywords: [tutor, study material, resources, help me study]
+  data_mutation:
+    keywords: [change my major, update my, edit my profile, correct my]
+  admission_inquiry:
+    keywords: [prospectus, campus life, hostel, placements, placement]
+
+routes:
+  student_grade_inquiry: fetch_data
+  enrollment: rag_retrieve
+  policy_lookup: fetch_data
+  resource_request: fetch_data
+  data_mutation: fetch_data
+  admission_inquiry: fetch_data
+  lead_capture: rag_retrieve
+  general: fetch_data
+
+classify_prompt:
+  system: |
+    You are a student support intent classifier.
+    Respond in valid JSON: {"label": "<type>", "confidence": <0.0-1.0>}
+
+    Labels (choose exactly one): {labels_pipe_separated}
+
+    Classification rules (in priority order):
+    1. ANY question about university topics — admissions, programs, eligibility, fees, scholarships, applications, distance/online education, courses, semesters, intake, duration, curriculum, placements → enrollment
+    2. Explicit conversion intent — user says "apply now", requests a counselor/callback, asks for brochure, or proactively shares personal contact details → lead_capture
+    3. Grades, GPA, marks, results, transcript → student_grade_inquiry
+    4. Policies, rules, handbooks, deadlines, withdrawal procedures → policy_lookup
+    5. Study materials, resources, tutoring → resource_request
+    6. Requests to update/change/modify student data → data_mutation
+    7. Broad exploratory admissions queries (campus life, hostel, prospectus) → admission_inquiry
+    8. Casual greetings, unclear intent, non-educational small talk → general
+
+    Key distinction: If the user asks a FACTUAL question (fees, eligibility, programs, admission process), always choose enrollment — NOT general, NOT lead_capture. Reserve lead_capture ONLY for explicit action requests (apply, callback, brochure, counselor).
+
+  user_template: |
+    Classify this query:
+    "{user_input}"
+
+cache_config:
+  default_similarity_threshold: 0.92
+  default_policy: "enabled"
+  default_scope: "actor"
+
+  workflow_policies:
+    enrollment:
+      policy: "enabled"
+      scope: "shared"
+    general:
+      policy: "enabled"
+      scope: "shared"
+    admission_inquiry:
+      policy: "enabled"
+      scope: "shared"
+    policy_lookup:
+      policy: "enabled"
+      scope: "shared"
+    resource_request:
+      policy: "enabled"
+      scope: "shared"
+    student_grade_inquiry:
+      policy: "enabled"
+      scope: "actor"
+    lead_capture:
+      policy: "disabled"
+    data_mutation:
+      policy: "disabled"
+
+retrieval_config:
+  # Pipeline sizing
+  dense_top_k: 30
+  sparse_top_k: 30
+  rrf_k: 60
+  rerank_input_size: 25
+  rerank_output_size: 6
+  min_final_score: 0.35
+  max_chunks_per_source: 2
+
+  # Scoring weights (used in _apply_lexical_boosts)
+  scoring_weights:
+    dense: 0.45
+    sparse: 0.35
+    rrf: 0.20
+
+  # Lexical boost values
+  lexical_boosts:
+    structured_data: 0.75
+    strong_program_match: 0.20
+    weak_program_match: 0.08
+    program_miss: -0.15
+    fee_match: 0.08
+    fee_miss: -0.05
+    noisy_path: -0.12
+    programme_path: 0.04
+    heading_match: 0.04
+
+  # URL path tokens that penalize chunks when they appear in source_url
+  noisy_path_tokens:
+    - archive
+    - convocation
+    - pictures
+    - gallery
+
+  # URL path patterns: chunks matching these get a boost
+  path_allowlist:
+    - "/programmes/"
+    - "/admissions/"
+    - "/fee-structure/"
+    - "/eligibility/"
+    - "/scholarships/"
+
+  # URL path patterns: chunks matching these get a penalty
+  path_blocklist:
+    - "/archive/"
+    - "/gallery/"
+    - "/events/"
+    - "/news/"
+    - "/convocation/"
+    - "/notices/"
+    - "/circulars/"
+
+  # Boost/penalty magnitude for path allowlist/blocklist
+  path_allowlist_boost: 0.10
+  path_blocklist_penalty: -0.10
