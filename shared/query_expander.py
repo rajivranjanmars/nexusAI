@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Any
 
 from llm.llm_client import call_fast
 from shared.logger import get_logger
@@ -74,3 +75,61 @@ async def expand_query(query: str, app_id: str) -> list[str]:
     except Exception as exc:
         logger.warning("Query expansion failed for app %s: %s", app_id, exc)
         return [normalized_query]
+
+
+async def condense_query_with_history(
+    query: str,
+    history: list[dict[str, Any]],
+    app_id: str,
+) -> str:
+    """Rewrite a query using conversation history to make it self-contained for retrieval.
+
+    If history is empty (first turn or no prior context), returns the query unchanged.
+    Otherwise, uses an LLM call to rewrite the latest message into a fully
+    self-contained search query, preserving the user's intent exactly.
+
+    Args:
+        query: The user's latest message.
+        history: List of prior messages, each with {"role": "user"|"assistant", "content": "..."}.
+        app_id: Application ID for logging.
+
+    Returns:
+        A rewritten query string that incorporates context from history,
+        or the original query if history is empty or on any error.
+    """
+    if not history:
+        return query
+
+    normalized_query = (query or "").strip()
+    if not normalized_query:
+        return query
+
+    try:
+        recent_history = history[-6:]
+        history_text = "\n".join(
+            f"{msg.get('role', 'user').capitalize()}: {msg.get('content', '')}"
+            for msg in recent_history
+        )
+
+        prompt = f"{history_text}\nUser: {normalized_query}"
+
+        system_prompt = (
+            "You are a query rewriter. Given a conversation history and the user's latest message, "
+            "rewrite the latest message into a fully self-contained retrieval query that preserves "
+            "the user's intent exactly, using context from the conversation. "
+            "Return ONLY the rewritten query text with no markdown, quotes, or commentary."
+        )
+
+        response, _usage = await call_fast(
+            prompt,
+            system=system_prompt,
+            max_tokens=150,
+            app_id=app_id,
+            action="query_condensation",
+        )
+
+        condensed = (response or "").strip()
+        return condensed if condensed else query
+    except Exception as exc:
+        logger.warning("Query condensation failed for app %s: %s", app_id, exc)
+        return query

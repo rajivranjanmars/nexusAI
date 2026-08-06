@@ -210,6 +210,7 @@ async def chat_complete_prestream(
             "session_id": session_id or actor_id,
             "user_input": user_input,
             "error": final_state.get("error"),
+            "clarification": final_state.get("clarification"),
         }
 
     except Exception as exc:

@@ -34,6 +34,9 @@ class WorkflowResponseConfig:
     include_sources: bool
     max_rag_chars: int
     history_limit: int
+    strategy: str = "answer"
+    sticky: bool = False
+    abandon_after_seconds: int = 600
     system_suffix: Optional[str] = None
 
 @dataclass(frozen=True)
@@ -54,6 +57,14 @@ class RetrievalConfig:
     path_blocklist: Tuple[str, ...]
     path_allowlist_boost: float
     path_blocklist_penalty: float
+
+
+@dataclass(frozen=True)
+class DisambiguationConfig:
+    """Configuration for disambiguation (facet narrowing)."""
+
+    min_gain: float
+    axes: Tuple[Tuple[str, str], ...]  # (name, path_prefix) pairs
 
 
 CacheScope = Literal["shared", "actor"]
@@ -84,6 +95,7 @@ class WorkflowConfig:
     response_styles: Dict[str, ResponseStyleConfig]
     workflow_response_config: Dict[str, WorkflowResponseConfig]
     retrieval_config: RetrievalConfig
+    disambiguation: DisambiguationConfig
 
 _defaults_cache: Optional[dict] = None
 _config_cache: Dict[str, tuple[WorkflowConfig, float]] = {}
@@ -116,6 +128,8 @@ _DEFAULT_RETRIEVAL_CONFIG = {
     "path_blocklist_penalty": -0.10,
 }
 
+_DEFAULT_DISAMBIGUATION = {"min_gain": 0.35, "axes": []}
+
 
 def _parse_retrieval_config(raw: dict) -> RetrievalConfig:
     """Build a ``RetrievalConfig`` from a raw dict, filling in safe defaults."""
@@ -138,6 +152,26 @@ def _parse_retrieval_config(raw: dict) -> RetrievalConfig:
         path_blocklist=tuple(str(p) for p in raw.get("path_blocklist", d["path_blocklist"])),
         path_allowlist_boost=float(raw.get("path_allowlist_boost", d["path_allowlist_boost"])),
         path_blocklist_penalty=float(raw.get("path_blocklist_penalty", d["path_blocklist_penalty"])),
+    )
+
+
+def _parse_disambiguation_config(raw: dict) -> DisambiguationConfig:
+    """Build a ``DisambiguationConfig`` from a raw dict, filling in safe defaults."""
+
+    d = _DEFAULT_DISAMBIGUATION
+    min_gain = float(raw.get("min_gain", d["min_gain"]))
+
+    # Parse axes: skip malformed entries, collect valid (name, path_prefix) pairs
+    axes_list = raw.get("axes", d["axes"])
+    valid_axes = []
+    if isinstance(axes_list, list):
+        for axis_entry in axes_list:
+            if isinstance(axis_entry, dict) and "name" in axis_entry and "path_prefix" in axis_entry:
+                valid_axes.append((str(axis_entry["name"]), str(axis_entry["path_prefix"])))
+
+    return DisambiguationConfig(
+        min_gain=min_gain,
+        axes=tuple(valid_axes),
     )
 
 
@@ -198,6 +232,10 @@ def get_workflow_config(app_id: Optional[str] = None) -> WorkflowConfig:
     retrieval_raw = dict(defaults.get("retrieval_config", {}))
     retrieval_cfg = _parse_retrieval_config(retrieval_raw)
 
+    # Disambiguation config defaults
+    disambiguation_raw = dict(defaults.get("disambiguation", {}))
+    disambiguation_cfg = _parse_disambiguation_config(disambiguation_raw)
+
     # Cache defaults
     cache_cfg = defaults.get("cache_config", {})
     cache_default_policy = str(cache_cfg.get("default_policy", "enabled"))
@@ -226,11 +264,22 @@ def get_workflow_config(app_id: Optional[str] = None) -> WorkflowConfig:
     workflow_response_config = {}
     for workflow_name, wf_config in defaults.get("workflow_response_config", {}).items():
         normalized_name = normalize_workflow_name(workflow_name)
+        # Parse strategy: lowercase/strip, fall back to "answer" for invalid values
+        strategy_raw = wf_config.get("strategy", "answer")
+        if isinstance(strategy_raw, str):
+            strategy = strategy_raw.strip().lower()
+            if strategy not in ("answer", "elicit"):
+                strategy = "answer"
+        else:
+            strategy = "answer"
         workflow_response_config[normalized_name] = WorkflowResponseConfig(
             default_style=wf_config.get("default_style", "balanced"),
             include_sources=wf_config.get("include_sources", True),
             max_rag_chars=wf_config.get("max_rag_chars", 4000),
             history_limit=wf_config.get("history_limit", 6),
+            strategy=strategy,
+            sticky=bool(wf_config.get("sticky", False)),
+            abandon_after_seconds=int(wf_config.get("abandon_after_seconds", 600)),
             system_suffix=wf_config.get("system_suffix")
         )
 
@@ -297,11 +346,22 @@ def get_workflow_config(app_id: Optional[str] = None) -> WorkflowConfig:
             if "workflow_response_config" in wf_config:
                 for workflow_name, wf_resp_config in wf_config["workflow_response_config"].items():
                     normalized_name = normalize_workflow_name(workflow_name)
+                    # Parse strategy: lowercase/strip, fall back to "answer" for invalid values
+                    strategy_raw = wf_resp_config.get("strategy", "answer")
+                    if isinstance(strategy_raw, str):
+                        strategy = strategy_raw.strip().lower()
+                        if strategy not in ("answer", "elicit"):
+                            strategy = "answer"
+                    else:
+                        strategy = "answer"
                     workflow_response_config[normalized_name] = WorkflowResponseConfig(
                         default_style=wf_resp_config.get("default_style", "balanced"),
                         include_sources=wf_resp_config.get("include_sources", True),
                         max_rag_chars=wf_resp_config.get("max_rag_chars", 4000),
                         history_limit=wf_resp_config.get("history_limit", 6),
+                        strategy=strategy,
+                        sticky=bool(wf_resp_config.get("sticky", False)),
+                        abandon_after_seconds=int(wf_resp_config.get("abandon_after_seconds", 600)),
                         system_suffix=wf_resp_config.get("system_suffix")
                     )
 
@@ -316,6 +376,11 @@ def get_workflow_config(app_id: Optional[str] = None) -> WorkflowConfig:
                             **wf_config["retrieval_config"][nested_key],
                         }
                 retrieval_cfg = _parse_retrieval_config(merged_raw)
+
+            # Merge disambiguation config
+            if "disambiguation" in wf_config:
+                merged_raw = {**disambiguation_raw, **wf_config["disambiguation"]}
+                disambiguation_cfg = _parse_disambiguation_config(merged_raw)
 
     # Render template variables
     labels_pipe_separated = " | ".join(sorted(labels_set))
@@ -335,6 +400,7 @@ def get_workflow_config(app_id: Optional[str] = None) -> WorkflowConfig:
         response_styles=response_styles,
         workflow_response_config=workflow_response_config,
         retrieval_config=retrieval_cfg,
+        disambiguation=disambiguation_cfg,
     )
 
     # Cache it
@@ -362,3 +428,16 @@ def resolve_cache_policy(
         policy=config.cache_default_policy,
         scope=config.cache_default_scope,
     )
+
+
+def sticky_workflow(config: WorkflowConfig) -> Optional[str]:
+    """Name of the workflow that holds the conversation while in progress.
+
+    Returns None when no workflow declares stickiness. If more than one does,
+    the first in declaration order wins — a conversation can only be held by
+    one workflow at a time.
+    """
+    for name, wf_config in config.workflow_response_config.items():
+        if wf_config.sticky:
+            return name
+    return None

@@ -43,6 +43,10 @@ class WorkflowState(TypedDict, total=False):
                             workflow run.
         error:              Error message if any node fails.
         metadata:           App-specific pass-through data.
+        lead_progress:      Persisted lead-capture progress for a session.
+        clarification:      Pending narrowing question state — the axis asked, its
+                            options, and the count of consecutive clarifications
+                            since the last answer attempt.
 
         student_id:         **Deprecated** — alias for ``actor_id``.
         student_data:       **Deprecated** — alias for ``actor_context``.
@@ -70,6 +74,7 @@ class WorkflowState(TypedDict, total=False):
     metadata: Optional[Dict[str, Any]]
     llm_response: Optional[str]
     lead_progress: Optional[Dict[str, Any]]
+    clarification: Optional[Dict[str, Any]]
     verified_phone: Optional[str]
 
     # ── Backward-compatible aliases (deprecated) ────────────────────────

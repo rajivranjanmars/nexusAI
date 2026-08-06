@@ -2,8 +2,9 @@
 Pre-stream graph: runs the pipeline up to ``build_context`` and stops.
 
 Used by the streaming endpoint to prepare context (classify, cache-check,
-fetch data, RAG retrieve, build context) without running the LLM reasoning
-step.  The proxy then streams LLM tokens directly via ``generate_response_stream``.
+fetch data, RAG retrieve, ask narrowing question if needed, build context)
+without running the LLM reasoning step.  The proxy then streams LLM tokens
+directly via ``generate_response_stream``.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from orchestration.nodes.cache_node import cache_check_node
 from orchestration.nodes.fetch_data_node import fetch_data_node
 from orchestration.nodes.build_context_node import build_context_node
 from orchestration.nodes.rag_retrieve_node import rag_retrieve_node
+from orchestration.nodes.disambiguate_node import disambiguate_node
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -41,6 +43,14 @@ def _route_after_smalltalk(state: WorkflowState) -> str:
         return END
     return "detect_workflow"
 
+
+def _route_after_disambiguate(state: WorkflowState) -> str:
+    """End early when a narrowing question was produced."""
+    if state.get("llm_response") and (state.get("metadata") or {}).get("prechecked_response"):
+        return END
+    return "build_context"
+
+
 def build_prestream_graph() -> StateGraph:
     """Construct a graph that runs classification → cache → fetch → RAG → context.
 
@@ -54,6 +64,7 @@ def build_prestream_graph() -> StateGraph:
     graph.add_node("cache_check", cache_check_node)
     graph.add_node("fetch_data", fetch_data_node)
     graph.add_node("rag_retrieve", rag_retrieve_node)
+    graph.add_node("disambiguate", disambiguate_node)
     graph.add_node("build_context", build_context_node)
 
     graph.set_entry_point("precheck_smalltalk")
@@ -79,7 +90,15 @@ def build_prestream_graph() -> StateGraph:
     )
 
     graph.add_edge("fetch_data", "rag_retrieve")
-    graph.add_edge("rag_retrieve", "build_context")
+    graph.add_edge("rag_retrieve", "disambiguate")
+    graph.add_conditional_edges(
+        "disambiguate",
+        _route_after_disambiguate,
+        {
+            "build_context": "build_context",
+            END: END,
+        },
+    )
     graph.add_edge("build_context", END)
 
     logger.info("Pre-stream graph compiled (context-only, stateless)")

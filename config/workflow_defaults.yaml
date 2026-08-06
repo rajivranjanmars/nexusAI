@@ -16,7 +16,7 @@ response_styles:
   detailed:
     include_sources: true
     max_rag_chars: 6000
-    format_instructions: "Always present the answer as crisp bullet points — one fact per line (fees, dates, requirements, etc.). Avoid long paragraphs. Keep the tone warm and helpful; a short one-line intro or closing is fine if it aids clarity."
+    format_instructions: "Always present the answer as crisp bullet points — one fact per line (fees, dates, requirements, etc.). Avoid long paragraphs. Keep the tone warm and helpful; a short one-line intro is fine if it aids clarity."
 
   concise:
     include_sources: false
@@ -33,46 +33,63 @@ response_styles:
     max_rag_chars: 1200
     format_instructions: "Provide short, natural replies that quickly clarify intent and move the conversation forward."
 
+  conversational:
+    include_sources: true
+    max_rag_chars: 3000
+    format_instructions: "Answer with a single short sentence or one-liner — the single most relevant fact only. Never use bullet points or lists unless the user explicitly asked for a full list or detailed breakdown. Let the conversation continue naturally via follow-up questions rather than dumping everything at once. Keep your tone warm and helpful."
+
 workflow_response_config:
   admission_inquiry:
+    strategy: "answer"
     default_style: "detailed"
     include_sources: true
     max_rag_chars: 3200
     history_limit: 4
   lead_capture:
+    strategy: "elicit"
     default_style: "concise"
     include_sources: false
     max_rag_chars: 500
     history_limit: 5
+    # An in-progress lead form holds the conversation until it completes,
+    # the user asks to exit, or it goes stale (no activity for 10 minutes).
+    sticky: true
+    abandon_after_seconds: 600
     system_suffix: "You are collecting lead details quickly and warmly. Do not answer admissions questions — redirect and ask for the next missing field."
   general:
-    default_style: "detailed"
+    strategy: "answer"
+    default_style: "conversational"
     include_sources: true
     max_rag_chars: 6000
     history_limit: 20
     system_suffix: "This is the parent conversational workflow. Keep replies short, helpful, and natural. Use it to greet, clarify, and understand intent. Funnel university, admissions, program, eligibility, fee, and application queries toward the enrollment workflow as soon as the intent becomes clear."
   student_grade_inquiry:
+    strategy: "answer"
     default_style: "balanced"
     include_sources: true
     max_rag_chars: 4000
     history_limit: 6
   enrollment:
-    default_style: "concise"
+    strategy: "answer"
+    default_style: "conversational"
     include_sources: true
     max_rag_chars: 6000
     history_limit: 20
-    system_suffix: "This is the primary workflow for admissions, programs, eligibility, fees, scholarships, and university process questions. Answer using concise bullet points from institutional context when available. If the user shows strong interest in applying, speaking to a counselor, getting a brochure, or sharing personal details, guide the conversation naturally toward lead capture."
+    system_suffix: "This is the primary workflow for admissions, programs, eligibility, fees, scholarships, and university process questions. Answer conversationally from institutional context when available — one short fact at a time, no bullet lists unless the user explicitly asks for a full breakdown. If the user shows strong interest in applying, speaking to a counselor, getting a brochure, or sharing personal details, guide the conversation naturally toward lead capture."
   policy_lookup:
+    strategy: "answer"
     default_style: "detailed"
     include_sources: true
     max_rag_chars: 5000
     history_limit: 6
   resource_request:
+    strategy: "answer"
     default_style: "balanced"
     include_sources: true
     max_rag_chars: 4000
     history_limit: 6
   data_mutation:
+    strategy: "answer"
     default_style: "concise"
     include_sources: false
     max_rag_chars: 2000
@@ -212,3 +229,12 @@ retrieval_config:
   # Boost/penalty magnitude for path allowlist/blocklist
   path_allowlist_boost: 0.10
   path_blocklist_penalty: -0.10
+
+disambiguation:
+  # Minimum gain before the bot is allowed to ask a narrowing question.
+  min_gain: 0.35
+  # Facets the bot may ask the user to narrow down. Each maps to a URL
+  # path prefix; the value is the path segment immediately following it.
+  axes:
+    - name: program
+      path_prefix: "/programmes/"

@@ -100,6 +100,7 @@ def _build_prompts(
             rag_context,
             workflow_config,
             answer_confidence,
+            history_text,
         )
     else:
         system_prompt, user_prompt = builder.build_regular_prompt(

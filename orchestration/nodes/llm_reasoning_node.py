@@ -16,7 +16,6 @@ from orchestration.state import WorkflowState
 from orchestration.workflow_config import get_workflow_config
 from orchestration.workflow_policy import workflow_uses_public_rag
 from llm.reasoner import generate_response
-from llm.prompt_builder import is_lead_capture_fact_query
 from shared.helper_buttons import normalize_lead_progress_payload
 from shared.logger import get_logger
 
@@ -42,11 +41,7 @@ def _workflow_includes_sources(app_id: str | None, workflow: str | None, user_qu
         workflow_name,
         config.workflow_response_config.get("general"),
     )
-    if workflow_config and workflow_config.include_sources:
-        return True
-    # Lead capture still cites sources when it answers a concrete factual
-    # question mid-flow (see PromptBuilder's LEAD CAPTURE FACT RULE).
-    return workflow_name == "lead_capture" and is_lead_capture_fact_query(user_query)
+    return bool(workflow_config and workflow_config.include_sources)
 
 
 def _append_sources(

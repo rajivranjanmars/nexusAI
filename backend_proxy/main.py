@@ -121,11 +121,11 @@ from orchestration.sms_service import GatewayUrlError, TemplateError, send_otp_s
 from orchestration.lead_capture_flags import maybe_flag_completion_celebration
 from orchestration.workflow_config import get_workflow_config
 from orchestration.workflow_policy import should_use_response_cache, workflow_uses_public_rag
-from llm.prompt_builder import is_lead_capture_fact_query
 from shared.config import settings
 from shared.helper_buttons import (
     build_lead_form_buttons,
     build_public_helper_buttons,
+    build_slot_buttons,
     normalize_lead_progress_payload,
 )
 from shared.logger import get_logger
@@ -294,11 +294,7 @@ def _workflow_includes_sources(app_id: str, workflow: str, user_query: str = "")
         workflow,
         config.workflow_response_config.get("general"),
     )
-    if workflow_config and workflow_config.include_sources:
-        return True
-    # Lead capture still cites sources when it answers a concrete factual
-    # question mid-flow (see PromptBuilder's LEAD CAPTURE FACT RULE).
-    return workflow == "lead_capture" and is_lead_capture_fact_query(user_query)
+    return bool(workflow_config and workflow_config.include_sources)
 
 
 def _append_sources_to_response(
@@ -353,14 +349,30 @@ def _resolve_helper_buttons(
     workflow: str,
     raw_lead_progress: Any,
     user_input: str,
+    clarification: Any = None,
 ) -> List[Dict[str, Any]]:
     """Return the correct helper buttons for the current workflow mode.
+
+    If a clarification question is pending (narrowing question), return
+    slot buttons for the clarification axis.
 
     Lead form mode (``lead_capture``) shows step-specific option buttons
     plus the Go Back button.
     All other workflows show contextual topic buttons plus the persistent
     Request a Callback button.
     """
+    # ponytail: clarification pending in lead_capture is impossible
+    # (disambiguate_node returns early for non-answer strategies);
+    # check clarification first for simpler logic.
+    if (
+        clarification
+        and isinstance(clarification, dict)
+        and clarification.get("pending") is True
+        and clarification.get("axis")
+        and clarification.get("options")
+    ):
+        return build_slot_buttons(clarification["axis"], clarification["options"])
+
     if workflow == "lead_capture":
         return build_lead_form_buttons(lead_progress=raw_lead_progress)
     return build_public_helper_buttons(
@@ -494,6 +506,7 @@ def _normalise_chat_downstream(downstream: Any, *, user_input: str = "") -> Dict
             "rag_context": downstream.get("rag_context", []),
             "answer_confidence": downstream.get("answer_confidence", 0.0),
             "retrieval_debug": retrieval_debug,
+            "clarification": downstream.get("clarification"),
         }
 
     return {
@@ -504,6 +517,7 @@ def _normalise_chat_downstream(downstream: Any, *, user_input: str = "") -> Dict
         "helper_buttons": [],
         "token_usage": {},
         "error": None,
+        "clarification": None,
     }
 
 
@@ -637,6 +651,7 @@ async def _stream_chat_events(
             workflow,
             prestream.get("lead_progress"),
             message,
+            clarification=prestream.get("clarification"),
         ),
         "token_usage": prestream.get("token_usage", {}),
     })
@@ -665,6 +680,7 @@ async def _stream_chat_events(
                 workflow,
                 prestream.get("lead_progress"),
                 message,
+                clarification=prestream.get("clarification"),
             ),
             "token_usage": prestream.get("token_usage", {}),
         })

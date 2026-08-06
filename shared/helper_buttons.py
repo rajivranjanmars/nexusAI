@@ -9,6 +9,7 @@ Two button-set modes:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from shared.logger import get_logger
@@ -342,6 +343,66 @@ def build_public_helper_buttons(
     return topic_buttons
 
 
+def build_slot_buttons(
+    axis: str,
+    options: Sequence[str],
+    *,
+    max_options: int = 4,
+) -> list[dict[str, str]]:
+    """Return dynamically-derived option buttons for narrowing questions.
+
+    Args:
+        axis: The axis/category name (e.g., "program"). Empty/blank returns [].
+        options: List of option values (already ranked by relevance).
+            Blank entries (after strip) are skipped. Case-insensitive
+            duplicates are collapsed, keeping the first occurrence.
+        max_options: Maximum number of option buttons to return (excluding Go Back).
+            Defaults to 4.
+
+    Returns:
+        A list of button dicts with "id", "text", and "value" keys.
+        Always includes GO_BACK_BUTTON as the last entry.
+        Returns [] if axis is empty/blank or options is empty.
+    """
+    # Empty axis or options -> no buttons
+    axis_str = str(axis).strip() if axis else ""
+    if not axis_str:
+        return []
+    if not options:
+        return []
+
+    buttons: list[dict[str, str]] = []
+    seen: set[str] = set()  # Track case-insensitive duplicates
+
+    for option in options:
+        if len(buttons) >= max_options:
+            break
+
+        option_str = str(option).strip()
+        if not option_str:  # Skip blank options
+            continue
+
+        # Case-insensitive deduplication
+        lower_option = option_str.lower()
+        if lower_option in seen:
+            continue
+        seen.add(lower_option)
+
+        # Build slug: lowercase, replace non-alphanumeric with "_", strip leading/trailing "_"
+        slug = re.sub(r"[^a-z0-9]+", "_", lower_option).strip("_")
+
+        button: dict[str, str] = {
+            "id": f"slot_{axis_str.lower()}_{slug}",
+            "text": option_str.upper(),
+            "value": option_str,
+        }
+        buttons.append(button)
+
+    # Always append Go Back as the last entry
+    buttons.append(GO_BACK_BUTTON)
+    return buttons
+
+
 # ── Private helpers ───────────────────────────────────────────────────────────
 
 def _detect_program(user_input: str) -> str | None:
@@ -380,6 +441,14 @@ def _demo() -> None:
     # No program/topic detected -> just the callback
     buttons = build_public_helper_buttons(lead_progress={"status": "in_progress"}, user_input="hello")
     assert buttons == [REQUEST_CALLBACK], buttons
+
+    # build_slot_buttons: basic case with three programs
+    buttons = build_slot_buttons("program", ["mba", "bba", "bca"])
+    assert len(buttons) == 4, buttons  # 3 options + GO_BACK
+    assert buttons[0]["id"] == "slot_program_mba", buttons
+    assert buttons[0]["text"] == "MBA", buttons
+    assert buttons[0]["value"] == "mba", buttons
+    assert buttons[-1] == GO_BACK_BUTTON, buttons
 
 
 if __name__ == "__main__":

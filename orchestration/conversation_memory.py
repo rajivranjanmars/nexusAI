@@ -80,3 +80,32 @@ async def clear_lead_progress(app_id: str, session_key: str) -> None:
         return
     key = _lead_progress_key(app_id, session_key)
     await redis_client.delete(key)
+
+
+def _clarification_key(app_id: str, session_key: str) -> str:
+    return f"clarification:{app_id}:{session_key}"
+
+
+async def get_clarification(app_id: str, session_key: str) -> Dict[str, Any]:
+    """Return persisted clarification state for a session."""
+    if not app_id or not session_key:
+        return {}
+    key = _clarification_key(app_id, session_key)
+    raw = await redis_client.get(key)
+    return raw if isinstance(raw, dict) else {}
+
+
+async def set_clarification(app_id: str, session_key: str, clarification: Dict[str, Any]) -> None:
+    """Persist clarification state for a session."""
+    if not app_id or not session_key or not clarification:
+        return
+    key = _clarification_key(app_id, session_key)
+    await redis_client.set(key, clarification, ttl=MEMORY_TTL)
+
+
+async def clear_clarification(app_id: str, session_key: str) -> None:
+    """Delete persisted clarification state for a session (e.g. on exit)."""
+    if not app_id or not session_key:
+        return
+    key = _clarification_key(app_id, session_key)
+    await redis_client.delete(key)

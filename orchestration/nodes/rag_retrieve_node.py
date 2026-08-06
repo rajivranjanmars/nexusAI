@@ -11,6 +11,7 @@ import time
 from typing import Any, Optional
 
 from cache_module.vector_store import _embed
+from orchestration.conversation_memory import get_history
 from orchestration.state import WorkflowState
 from orchestration.workflow_config import RetrievalConfig, get_workflow_config
 from shared.bm25_index import get_or_build_index
@@ -20,7 +21,7 @@ from shared.chroma_client import (
     get_parent_chunks_by_ids,
 )
 from shared.logger import get_logger
-from shared.query_expander import expand_query
+from shared.query_expander import expand_query, condense_query_with_history
 from shared.reranker import rerank
 from shared.retrieval_models import ChunkRecord, ChunkType, RetrievalResult, RetrievedChunk
 
@@ -508,7 +509,27 @@ async def rag_retrieve_node(state: WorkflowState) -> WorkflowState:
 
     try:
         rc = _get_retrieval_config(app_id)
-        retrieval_result = await run_retrieval(user_input, app_id)
+
+        actor_id = state.get("actor_id") or state.get("student_id") or ""
+        session_id = state.get("session_id") or actor_id
+        retrieval_query = user_input
+
+        if app_id and session_id:
+            try:
+                history = await get_history(app_id, session_id)
+                if history:
+                    retrieval_query = await condense_query_with_history(user_input, history, app_id)
+                    if retrieval_query != user_input:
+                        logger.info(
+                            "Query condensation for app %s: '%s' -> '%s'",
+                            app_id,
+                            user_input[:80],
+                            retrieval_query[:80],
+                        )
+            except Exception as exc:
+                logger.warning("Query condensation failed for app %s, using original query: %s", app_id, exc)
+
+        retrieval_result = await run_retrieval(retrieval_query, app_id)
         rag_context = [
             item
             for item in (_to_rag_context(chunk, rc) for chunk in retrieval_result.chunks)

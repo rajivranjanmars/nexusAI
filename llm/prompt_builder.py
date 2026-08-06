@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from shared.logger import get_logger
 from shared.prompt_loader import render_prompt
+from shared.disambiguation import Axis, rank_axes
 from orchestration.workflow_config import get_workflow_config, WorkflowResponseConfig
 from db.app_registry import resolve_by_app_id
 
@@ -21,37 +22,72 @@ logger = get_logger(__name__)
 
 _LOW_CONFIDENCE_THRESHOLD = 0.35
 _MEDIUM_CONFIDENCE_THRESHOLD = 0.60
-_LEAD_CAPTURE_FACT_TOKENS = frozenset({
-    "fee",
-    "fees",
-    "cost",
-    "costs",
-    "tuition",
-    "eligibility",
-    "duration",
-    "admission",
-    "semester",
-    "semesters",
-    "annual",
-    "lumpsum",
-    "curriculum",
-    "syllabus",
-    "placement",
-    "placements",
-    "scholarship",
-    "scholarships",
-})
+# Must match backend_proxy.main._MAX_STREAM_SOURCE_URLS — the user only ever
+# sees this many numbered sources, so the model must not cite beyond it.
+_MAX_CITED_SOURCES = 2
+
+# Phrases that mean the previous turn already offered further help. Offering
+# again immediately is what makes a bot read as a machine.
+_CLOSING_OFFER_MARKERS = (
+    "anything else",
+    "let me know",
+    "feel free",
+    "happy to help",
+    "here to help",
+    "further questions",
+    "more questions",
+)
 
 
-def is_lead_capture_fact_query(user_query: str) -> bool:
-    """Return whether a lead-capture query is asking for concrete institutional facts."""
+def _last_assistant_turn(history_text: str) -> str:
+    """Return the most recent assistant line from the rendered history.
 
-    tokens = {
-        token.strip(".,?!:;()[]{}\"'").lower()
-        for token in (user_query or "").split()
-        if token.strip()
-    }
-    return bool(tokens & _LEAD_CAPTURE_FACT_TOKENS)
+    ``reasoner`` renders history as alternating ``User: ...`` / ``You: ...``
+    lines. Empty string when there is no prior assistant turn.
+    """
+    for line in reversed((history_text or "").splitlines()):
+        if line.startswith("You: "):
+            return line[len("You: "):].strip()
+    return ""
+
+
+def closing_allowed(
+    history_text: str,
+    workflow_config: WorkflowResponseConfig,
+    answer_confidence: float,
+) -> bool:
+    """Whether this turn may end by inviting the user to ask something else.
+
+    Frequency is a cross-turn property, so prose cannot control it: an
+    instruction to offer help fires every turn and reads robotic, while an
+    instruction never to offer reads curt. The decision belongs in code.
+    """
+    if workflow_config.strategy != "answer":
+        # An elicit workflow is filling a form; an open offer derails it.
+        return False
+    if answer_confidence < _LOW_CONFIDENCE_THRESHOLD:
+        # This turn ends in a clarifying question — don't stack an offer on it.
+        return False
+
+    last = _last_assistant_turn(history_text).casefold()
+    if last.endswith("?"):
+        return False
+    return not any(marker in last for marker in _CLOSING_OFFER_MARKERS)
+
+
+def _closing_instruction(allowed: bool) -> str:
+    """Return the closing-line instruction for this turn."""
+    if allowed:
+        return (
+            "CLOSING: you may end with one short, natural line inviting the user to "
+            "ask about anything else. Phrase it in your own words for this specific "
+            "conversation — never a stock sign-off. Omit it entirely if the answer "
+            "already stands on its own.\n\n"
+        )
+    return (
+        "CLOSING: end on the answer itself. Do not offer further help and do not "
+        "list other topics you can cover.\n\n"
+    )
 
 
 class PromptBuilder:
@@ -146,7 +182,17 @@ class PromptBuilder:
         rendered_chunks: list[str] = []
         chars_used = 0
 
-        for idx, chunk in enumerate(rag_context, start=1):
+        # Build a map of source_url to deduplicated source index, matching backend_proxy's logic.
+        source_url_to_idx: dict[str, int] = {}
+        source_index = 0
+        for chunk in rag_context:
+            source_url = chunk.get("source_url", "")
+            if source_url and source_url not in source_url_to_idx:
+                if source_index < _MAX_CITED_SOURCES:
+                    source_index += 1
+                    source_url_to_idx[source_url] = source_index
+
+        for chunk in rag_context:
             matched_text = str(chunk.get("match_content", "") or "").strip()
             hydrated_text = str(chunk.get("content", "") or "").strip()
             if not matched_text and not hydrated_text:
@@ -155,7 +201,13 @@ class PromptBuilder:
             heading = chunk.get("section_heading", "")
             source_url = chunk.get("source_url", "")
             confidence = float(chunk.get("score", 0.0) or 0.0)
-            header = f"[Source {idx}"
+
+            # Use deduplicated source index, or None if beyond cap or missing URL.
+            source_idx = source_url_to_idx.get(source_url)
+
+            header = "[Source"
+            if source_idx:
+                header += f" {source_idx}"
             if heading:
                 header += f" | {heading}"
             if source_url:
@@ -198,22 +250,27 @@ class PromptBuilder:
         if answer_confidence < _LOW_CONFIDENCE_THRESHOLD:
             return (
                 "The retrieved knowledge does not contain a confident answer. "
-                "Acknowledge uncertainty clearly, avoid fabrication, and suggest where the user can verify the answer."
+                "Do not fabricate. Instead of suggesting the user verify elsewhere, ask one short, specific clarifying question "
+                "to narrow down what they need (e.g., which programme, which specific detail, which year). "
+                "Keep the question brief and constructive to move the conversation forward."
             )
         if answer_confidence < _MEDIUM_CONFIDENCE_THRESHOLD:
             return (
-                "Answer from the retrieved knowledge, but note uncertainty where the evidence is incomplete. "
+                "Answer from the retrieved knowledge where it clearly addresses the question. "
+                "Include the source marker (e.g., [1], [2]) when citing information; never invent a marker. "
+                # Asking which programme is disambiguate_node's job, and it is
+                # budgeted to one turn. Telling the model to ask here would spend
+                # that budget a second time and contradict AMBIGUITY LABELLING.
+                "If the evidence covers more than one programme or topic, say which one each fact "
+                "applies to rather than asking the user to choose. "
                 "Do not include raw URLs or a Sources section — the system will attach them automatically."
             )
         return (
             "Answer precisely from the retrieved knowledge below. "
-            "Do not include raw URLs, source numbers, or a Sources section — the system will attach them automatically. "
+            "Include the source marker (e.g., [1], [2]) when citing information; never invent a marker. "
+            "Do not include raw URLs or a Sources section — the system will attach them automatically. "
             "Do not add unsupported facts."
         )
-
-    def _is_lead_capture_fact_query(self, user_query: str) -> bool:
-        """Return whether a lead-capture query is asking for concrete institutional facts."""
-        return is_lead_capture_fact_query(user_query)
 
     def build_strict_rag_prompt(
         self,
@@ -221,6 +278,7 @@ class PromptBuilder:
         rag_context: list[dict],
         workflow_config: WorkflowResponseConfig,
         answer_confidence: float,
+        history_text: str = "",
     ) -> Tuple[str, str]:
         """Build prompts for strict RAG mode."""
         config = get_workflow_config(self.app_id)
@@ -263,7 +321,11 @@ class PromptBuilder:
         
         # Source URLs are appended by the proxy — do not ask the LLM to emit them inline.
         system_prompt += "- Do not include raw URLs or a Sources section in your reply.\n"
-        
+
+        system_prompt += "\n" + _closing_instruction(
+            closing_allowed(history_text, workflow_config, answer_confidence)
+        )
+
         user_prompt = (
             f"Question:\n{user_query}\n\n"
             f"Website content:\n\n{chr(10).join(rendered_chunks)}\n\n"
@@ -331,40 +393,39 @@ class PromptBuilder:
             if response_style and response_style.format_instructions:
                 base_instructions += f"{response_style.format_instructions}\n\n"
             else:
-                # Default formatting based on workflow
-                if self.workflow == "lead_capture":
-                    base_instructions += (
-                        "LEAD CAPTURE FORMAT: Always use bullet points for factual details (fees, eligibility, dates). "
-                        "Keep the overall response concise and warm.\n\n"
-                    )
-                elif self.workflow == "general":
-                    base_instructions += (
-                        "TRIAGE RULE: Keep replies short and natural. Clarify intent when needed, "
-                        "and move admissions- or university-related conversations toward concrete next steps.\n\n"
-                    )
-                elif self.workflow == "enrollment":
-                    base_instructions += (
-                        "ENROLLMENT FORMAT: Always use bullet points for key facts (fees, eligibility, dates, duration). "
-                        "Answer the question first, then suggest the most relevant next step if helpful.\n\n"
-                    )
-                else:
-                    base_instructions += "BREVITY RULE: Always answer in short, crisp bullet points. No preamble.\n\n"
+                # Conversational strategy is a workflow-contract concern, not a prompt-assembly concern.
+                base_instructions += "BREVITY RULE: Answer concisely with the most relevant fact. Avoid unnecessary detail.\n\n"
 
-            if self.workflow == "lead_capture" and self._is_lead_capture_fact_query(user_query):
-                base_instructions += (
-                    "LEAD CAPTURE FACT RULE: The user is asking for concrete admissions information. "
-                    "Answer ONLY from the retrieved website content. If exact figures or details are present, "
-                    "state them directly and exactly. If the exact detail is not present, say briefly that you "
-                    "could not find that exact information right now. Do NOT speculate. Do NOT say fees may change. "
-                    "Do NOT mention scholarships, offers, brochures, or admissions-team follow-up unless those "
-                    "details are explicitly present in the retrieved website content.\n\n"
-                )
-            
+            # Add ambiguity labeling instruction if facets remain unresolved
+            try:
+                cfg = get_workflow_config(self.app_id)
+                dis = cfg.disambiguation
+                axes = [Axis(n, p) for n, p in dis.axes]
+                ranked = rank_axes(rag_context, axes)
+                unresolved = [name for name, gain in ranked if gain > dis.min_gain]
+
+                if unresolved:
+                    axes_str = ", ".join(unresolved)
+                    base_instructions += (
+                        f"AMBIGUITY LABELLING: the retrieved information still varies by {axes_str}. "
+                        f"For any fact whose value depends on {axes_str}, state which one it applies to "
+                        f"inline, e.g. 'Fee (online): ...'. State facts that do NOT vary plainly, with no label. "
+                        f"Do not ask the user which one they meant — you have already asked once this conversation.\n\n"
+                    )
+            except Exception:
+                logger.warning("Failed to compute unresolved facets for ambiguity labeling")
+
             # Source URLs are appended cleanly by the proxy after the LLM reply.
             # Never ask the LLM to emit raw URLs or a Sources section inline.
             base_instructions += "Do not include raw URLs or a 'Sources:' section in your reply. The system will attach sources automatically.\n"
             
             base_instructions += "Do not return JSON or any response schema. Return only the final answer.\n"
             system_prompt += base_instructions
-        
+
+        # Applies with or without RAG — an elicit turn needs the ban just as
+        # much as an answered one needs the permission.
+        system_prompt += "\n\n" + _closing_instruction(
+            closing_allowed(history_text, workflow_config, answer_confidence)
+        )
+
         return system_prompt, user_prompt

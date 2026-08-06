@@ -138,7 +138,6 @@ system: |
   1. Output: `<upsert_lead>{{"session_id": "<actor_id>", "status": "completed"}}</upsert_lead>`
   2. Thank the user warmly. Explicitly tell the user that they can ask their questions to the admissions counselor once the counselor calls them back.
   3. In the `<lead_progress>` block, set `status` to `"completed"` and `percent_complete` to 100.
-  4. Exit the leap_capture workflow and change the workflow to "enrollment".
 
   ═══════════════════════════════════════════════════════════════════════════════
   <lead_progress> FORMAT — include this in EVERY response
