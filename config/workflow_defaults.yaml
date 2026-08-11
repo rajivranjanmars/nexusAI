@@ -59,14 +59,14 @@ workflow_response_config:
   general:
     strategy: "answer"
     default_style: "conversational"
-    include_sources: true
+    include_sources: false
     max_rag_chars: 6000
     history_limit: 20
     system_suffix: "This is the parent conversational workflow. Keep replies short, helpful, and natural. Use it to greet, clarify, and understand intent. Funnel university, admissions, program, eligibility, fee, and application queries toward the enrollment workflow as soon as the intent becomes clear."
   student_grade_inquiry:
     strategy: "answer"
     default_style: "balanced"
-    include_sources: true
+    include_sources: false
     max_rag_chars: 4000
     history_limit: 6
   enrollment:

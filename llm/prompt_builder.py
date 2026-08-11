@@ -257,7 +257,7 @@ class PromptBuilder:
         if answer_confidence < _MEDIUM_CONFIDENCE_THRESHOLD:
             return (
                 "Answer from the retrieved knowledge where it clearly addresses the question. "
-                "Include the source marker (e.g., [1], [2]) when citing information; never invent a marker. "
+                #"Include the source marker (e.g., [1], [2]) when citing information; never invent a marker. "
                 # Asking which programme is disambiguate_node's job, and it is
                 # budgeted to one turn. Telling the model to ask here would spend
                 # that budget a second time and contradict AMBIGUITY LABELLING.
@@ -267,7 +267,7 @@ class PromptBuilder:
             )
         return (
             "Answer precisely from the retrieved knowledge below. "
-            "Include the source marker (e.g., [1], [2]) when citing information; never invent a marker. "
+            #"Include the source marker (e.g., [1], [2]) when citing information; never invent a marker. "
             "Do not include raw URLs or a Sources section — the system will attach them automatically. "
             "Do not add unsupported facts."
         )
