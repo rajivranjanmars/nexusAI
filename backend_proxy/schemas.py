@@ -387,27 +387,6 @@ class DevAppTokenMintRequest(BaseModel):
     )
 
 
-class DevAdminTokenMintRequest(BaseModel):
-    """Development-only request body to mint an admin token from a private key."""
-
-    app_id: str = Field(..., min_length=1, description="Registered admin application ID")
-    private_key: str = Field(..., min_length=1, description="PEM formatted ES256 private key")
-    actor_id: str = Field(
-        default="ADMIN001",
-        description="Optional admin actor identifier to embed in the issued proxy token",
-    )
-    origin: str = Field(
-        default="",
-        description="Optional origin/domain to enforce domain matching during exchange",
-    )
-    jwt_ttl_seconds: int = Field(
-        default=120,
-        ge=30,
-        le=3600,
-        description="Expiry for the intermediate app-signed JWT",
-    )
-
-
 class DevSignedTokenRequest(BaseModel):
     """Development-only request to generate a raw ES256 app-signed JWT."""
 

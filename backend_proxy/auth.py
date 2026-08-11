@@ -147,12 +147,11 @@ async def authenticate_app_jwt(signed_token: str, request_domain: str) -> tuple[
 
     actor_id = str(payload.get("actor_id", ""))
     actor_type = str(payload.get("actor_type", "student"))
-    derived_role = "admin" if actor_type == "admin" else "app"
 
     user = AuthenticatedUser(
         actor_id=actor_id,
         project_name=app_ctx.app_name,
-        role=derived_role,
+        role="app",
         token_id="",
         app_id=app_ctx.app_id,
         actor_type=actor_type,

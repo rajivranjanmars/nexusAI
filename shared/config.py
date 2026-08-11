@@ -170,10 +170,6 @@ class Settings(BaseSettings):
         default="change-me-proxy-login",
         description="Bootstrap student login password for local proxy auth",
     )
-    proxy_admin_login_password: str = Field(
-        default="change-me-admin-login",
-        description="Bootstrap admin login password for privileged proxy auth",
-    )
     proxy_mcp_api_key: str = Field(
         default="LPUAI_backend_proxy_global_McpProxyInternalKey1234",
         description="Internal API key used by the backend proxy to call MCP",

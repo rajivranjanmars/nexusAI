@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "5251a411-b254-4ac6-a58a-5088160fcee1",
     "name": "central-ai-mcp",
-    "description": "LPU Nexus — Central AI Module API Collection.\n\nRecommended workflow:\n1. Run **Apps (Admin) / Bootstrap New App (PKI)** to create an app and capture `app_id`, `private_key`, and `public_key`.\n2. For production-style auth, run **Auth / Get App Token (PKI)** or **Auth / Get App User Token** with a backend-minted `signed_token`.\n3. For development tooling only, use **Auth / Get App User Token (Dev Convenience)** or **Auth / Get Admin Token (Dev Convenience)**.\n4. Use saved variables (`{{access_token}}`, `{{access_token}}`, `{{app_id}}`) in downstream requests.\n\nVariables expected in your Postman Environment:\n- `base_url` (default: `http://localhost:5123`)\n- `admin_key` — value of `PROXY_ADMIN_LOGIN_PASSWORD` from .env\n- `access_token` — populated by test script\n- `refresh_token` — populated by test script\n- `access_token` — populated by test script\n- `app_id` — populated by bootstrap/register requests\n- `app_private_key` — populated by bootstrap request\n- `app_public_key` — populated by bootstrap request\n- `job_id` — populated by RAG crawl request",
+    "description": "LPU Nexus — Central AI Module API Collection.\n\nRecommended workflow:\n1. Run **Auth / Admin Login** with your admin email + password. This is the ONLY admin auth path and populates `{{admin_access_token}}`, used by every request in Apps (Admin), RAG (Admin), and Observability (Admin).\n2. Run **Apps (Admin) / Bootstrap New App (PKI)** to create an app and capture `app_id`, `private_key`, and `public_key`.\n3. For production-style chatbot auth, run **Auth / Get App Token (PKI)** or **Auth / Get App User Token** with a backend-minted `signed_token`.\n4. For local development only, **Auth / Get App User Token (Dev Convenience)** signs the app JWT for you from a private key.\n\nSeed the first super_admin with `python -m db.seed_admin`.\n\nVariables:\n- `base_url` (default: `http://localhost:5123`)\n- `admin_email` / `admin_password` — your admin dashboard credentials\n- `admin_access_token` / `admin_refresh_token` — populated by Admin Login\n- `access_token` / `refresh_token` — chatbot app-user tokens, populated by test script\n- `app_id` — populated by bootstrap/register requests\n- `app_private_key` / `app_public_key` — populated by bootstrap request\n- `job_id` — populated by RAG crawl request",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "53539765",
     "_collection_link": "https://go.postman.co/collection/53539765-5251a411-b254-4ac6-a58a-5088160fcee1?source=collection_link"
@@ -11,11 +11,6 @@
     {
       "key": "base_url",
       "value": "http://localhost:5123",
-      "type": "string"
-    },
-    {
-      "key": "admin_key",
-      "value": "",
       "type": "string"
     },
     {
@@ -35,6 +30,26 @@
     },
     {
       "key": "job_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_refresh_token",
       "value": "",
       "type": "string"
     }
@@ -236,20 +251,17 @@
           "response": []
         },
         {
-          "name": "Get Admin Token (Dev Convenience)",
+          "name": "Admin Login",
           "event": [
             {
               "listen": "test",
               "script": {
+                "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Store access_token\", function () {",
-                  "  const json = pm.response.json();",
-                  "  pm.expect(json).to.have.property(\"access_token\");",
-                  "  pm.environment.set(\"access_token\", json.access_token);",
-                  "  if (json.refresh_token) pm.environment.set(\"admin_refresh_token\", json.refresh_token);",
-                  "});"
-                ],
-                "type": "text/javascript"
+                  "const b = pm.response.json();",
+                  "if (b.access_token) { pm.collectionVariables.set(\"admin_access_token\", b.access_token); }",
+                  "if (b.refresh_token) { pm.collectionVariables.set(\"admin_refresh_token\", b.refresh_token); }"
+                ]
               }
             }
           ],
@@ -266,7 +278,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"app_id\": \"{{app_id}}\",\n  \"private_key\": \"{{app_private_key}}\",\n  \"actor_id\": \"ADMIN001\"\n}",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -274,18 +286,99 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/auth/dev/admin-token",
+              "raw": "{{base_url}}/api/auth/admin/login",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "auth",
-                "dev",
-                "admin-token"
+                "admin",
+                "login"
               ]
             },
-            "description": "Development-only convenience endpoint for admin tooling. Provide the admin app's `app_id` and PEM `private_key`; the proxy signs the short-lived app JWT internally and returns an admin-scoped token."
+            "description": "The only admin login path. Returns an admin dashboard JWT used by every /api/admin/* request. Seed the first super_admin with `python -m db.seed_admin`."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Refresh",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.access_token) { pm.collectionVariables.set(\"admin_access_token\", b.access_token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{admin_refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/admin/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "admin",
+                "refresh"
+              ]
+            },
+            "description": "Refresh an expired admin access token using a valid refresh token."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Me",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/admin/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "admin",
+                "me"
+              ]
+            },
+            "description": "Get the current authenticated admin's profile information."
           },
           "response": []
         },
@@ -352,18 +445,20 @@
           ],
           "request": {
             "auth": {
-              "type": "noauth"
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
             },
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "x-admin-key",
-                "value": "{{admin_key}}",
-                "description": "Value of PROXY_ADMIN_LOGIN_PASSWORD from .env"
               }
             ],
             "body": {
@@ -386,7 +481,7 @@
                 "bootstrap"
               ]
             },
-            "description": "One-shot PKI bootstrap. The proxy generates an ES256 keypair, registers the app, and returns `app_id`, `private_key`, and `public_key`. Postman stores the returned values in environment variables."
+            "description": "One-shot PKI bootstrap. The proxy generates an ES256 keypair, registers the app, and returns `app_id`, `private_key`, and `public_key`. Postman stores the returned values in environment variables.\n\nRequires a super_admin bearer token — run **Auth / Admin Login** first."
           },
           "response": []
         },
@@ -409,18 +504,20 @@
           ],
           "request": {
             "auth": {
-              "type": "noauth"
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_access_token}}",
+                  "type": "string"
+                }
+              ]
             },
             "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "x-admin-key",
-                "value": "{{admin_key}}",
-                "description": "Value of PROXY_ADMIN_LOGIN_PASSWORD from .env"
               }
             ],
             "body": {
@@ -443,7 +540,7 @@
                 "register"
               ]
             },
-            "description": "Dynamically register a new application into the Proxy DB.\n\nRequires the `x-admin-key` header (value = `PROXY_ADMIN_LOGIN_PASSWORD` env var).\n\nThe `public_key` must be a PEM-formatted ES256 public key. The registered app can then sign JWTs with the corresponding private key to call `/api/auth/app-token`.\n\nReturns `app_id` which should be recorded for app management."
+            "description": "Dynamically register a new application into the Proxy DB.\n\nRequires a super_admin bearer token — run **Auth / Admin Login** first.\n\nThe `public_key` must be a PEM-formatted ES256 public key. The registered app can then sign JWTs with the corresponding private key to call `/api/auth/app-token`.\n\nReturns `app_id` which should be recorded for app management."
           },
           "response": []
         },
@@ -455,7 +552,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -491,7 +588,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -522,7 +619,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -567,7 +664,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -599,7 +696,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -771,6 +868,7 @@
     },
     {
       "name": "RAG (Admin)",
+      "description": "Admin endpoints for RAG knowledge base management. All endpoints require an admin dashboard JWT token. App-signed tokens are no longer accepted for /api/rag/ingest operations.",
       "item": [
         {
           "name": "Trigger Website Crawl",
@@ -794,7 +892,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -826,7 +924,7 @@
                 "crawl"
               ]
             },
-            "description": "Trigger an async BFS website crawl to populate the RAG knowledge base for a given `app_id`.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nThe crawler:\n- Stays within the same domain as `seed_url`\n- Skips binary assets (.pdf, .jpg, .css, .js, etc.)\n- Uses Trafilatura for content extraction (falls back to BeautifulSoup)\n- Rate-limits itself (500ms delay, max 5 concurrent)\n\n`allowed_paths` optionally restricts crawling to specific URL path prefixes.\n\nReturns a `job_id` — poll `/api/rag/status/{job_id}` to track progress."
+            "description": "Trigger an async BFS website crawl to populate the RAG knowledge base for a given `app_id`.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nThe crawler:\n- Stays within the same domain as `seed_url`\n- Skips binary assets (.pdf, .jpg, .css, .js, etc.)\n- Uses Trafilatura for content extraction (falls back to BeautifulSoup)\n- Rate-limits itself (500ms delay, max 5 concurrent)\n\n`allowed_paths` optionally restricts crawling to specific URL path prefixes.\n\nReturns a `job_id` — poll `/api/rag/status/{job_id}` to track progress."
           },
           "response": []
         },
@@ -838,7 +936,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -870,7 +968,7 @@
                 "ingest"
               ]
             },
-            "description": "Ingest a single URL into the RAG knowledge base for a given `app_id`.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nThe pipeline: fetch → extract text → SHA-256 dedup check → chunk (512 tok / 64 overlap) → embed → upsert to ChromaDB."
+            "description": "Ingest a single URL into the RAG knowledge base for a given `app_id`.\n\n**Requires admin JWT** (`{{admin_access_token}}`). Admin dashboard tokens required; app-signed tokens no longer accepted.\n\nThe pipeline: fetch → extract text → SHA-256 dedup check → chunk (512 tok / 64 overlap) → embed → upsert to ChromaDB."
           },
           "response": []
         },
@@ -882,7 +980,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -914,7 +1012,7 @@
                 "ingest"
               ]
             },
-            "description": "Ingest a file (PDF, DOCX, or plain text) into the RAG knowledge base.\n\n**Requires admin JWT** (`{{access_token}}`).\n\n`content` must be base64-encoded bytes of the file. Supported formats:\n- `.pdf` — text extracted via PyPDF\n- `.docx` — text extracted via python-docx\n- Any other extension — decoded as UTF-8 plain text"
+            "description": "Ingest a file (PDF, DOCX, or plain text) into the RAG knowledge base.\n\n**Requires admin JWT** (`{{admin_access_token}}`). Admin dashboard tokens required; app-signed tokens no longer accepted.\n\n`content` must be base64-encoded bytes of the file. Supported formats:\n- `.pdf` — text extracted via PyPDF\n- `.docx` — text extracted via python-docx\n- Any other extension — decoded as UTF-8 plain text"
           },
           "response": []
         },
@@ -926,7 +1024,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -958,7 +1056,7 @@
                 "ingest"
               ]
             },
-            "description": "Ingest structured knowledge with native JSON records.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nPreferred fields:\n- `records`: array of objects to flatten into ingest text\n- `source_url`: canonical source link for citations\n\nBackward compatible:\n- `content`: JSON string containing an object or array\n\nArray records are flattened into `key: value | key: value` rows before chunking."
+            "description": "Ingest structured knowledge with native JSON records.\n\n**Requires admin JWT** (`{{admin_access_token}}`). Admin dashboard tokens required; app-signed tokens no longer accepted.\n\nPreferred fields:\n- `records`: array of objects to flatten into ingest text\n- `source_url`: canonical source link for citations\n\nBackward compatible:\n- `content`: JSON string containing an object or array\n\nArray records are flattened into `key: value | key: value` rows before chunking."
           },
           "response": []
         },
@@ -970,7 +1068,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -989,7 +1087,7 @@
                 "{{job_id}}"
               ]
             },
-            "description": "Poll the status of a crawl job created by `POST /api/rag/crawl`.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nSet `{{job_id}}` in your environment to the `job_id` returned by the crawl endpoint.\n\nStatus lifecycle: `queued` → `processing` → `done` | `failed`\n\nResponse includes `pages_found`, `pages_skipped`, `pages_failed`, `chunks_upserted`, start/end timestamps, and any `error` message."
+            "description": "Poll the status of a crawl job created by `POST /api/rag/crawl`.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nSet `{{job_id}}` in your environment to the `job_id` returned by the crawl endpoint.\n\nStatus lifecycle: `queued` → `processing` → `done` | `failed`\n\nResponse includes `pages_found`, `pages_skipped`, `pages_failed`, `chunks_upserted`, start/end timestamps, and any `error` message."
           },
           "response": []
         }
@@ -1006,7 +1104,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1039,7 +1137,7 @@
                 }
               ]
             },
-            "description": "Aggregated token usage analytics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nQuery params:\n- `period`: `today` | `7d` | `30d` | `all`\n- `app_id` (optional): restrict to a single app\n\nReturns total calls, total tokens (prompt/completion/total), total cost (USD), average latency, and breakdowns by model and by action."
+            "description": "Aggregated token usage analytics.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nQuery params:\n- `period`: `today` | `7d` | `30d` | `all`\n- `app_id` (optional): restrict to a single app\n\nReturns total calls, total tokens (prompt/completion/total), total cost (USD), average latency, and breakdowns by model and by action."
           },
           "response": []
         },
@@ -1051,7 +1149,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1079,7 +1177,7 @@
                 }
               ]
             },
-            "description": "Daily token usage breakdown for a specific app.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns an array of `{ date, calls, tokens, cost_usd }` for each day in the period."
+            "description": "Daily token usage breakdown for a specific app.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nReturns an array of `{ date, calls, tokens, cost_usd }` for each day in the period."
           },
           "response": []
         },
@@ -1091,7 +1189,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1128,7 +1226,7 @@
                 }
               ]
             },
-            "description": "Paginated list of individual LLM invocations.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nEach item includes timestamp, app_id, actor_id, model, token counts, estimated cost, latency, and action label."
+            "description": "Paginated list of individual LLM invocations.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nEach item includes timestamp, app_id, actor_id, model, token counts, estimated cost, latency, and action label."
           },
           "response": []
         },
@@ -1140,7 +1238,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1160,7 +1258,7 @@
                 "stats"
               ]
             },
-            "description": "Global RAG knowledge store statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns total chunks across all apps, total apps with data, and a per-app breakdown with chunk counts, source types, and unique source count."
+            "description": "Global RAG knowledge store statistics.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nReturns total chunks across all apps, total apps with data, and a per-app breakdown with chunk counts, source types, and unique source count."
           },
           "response": []
         },
@@ -1172,7 +1270,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1193,7 +1291,7 @@
                 "{{app_id}}"
               ]
             },
-            "description": "Per-app RAG knowledge store statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns chunk count, source type breakdown (crawl/file/structured), and unique source count for the specified app."
+            "description": "Per-app RAG knowledge store statistics.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nReturns chunk count, source type breakdown (crawl/file/structured), and unique source count for the specified app."
           },
           "response": []
         },
@@ -1205,7 +1303,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1233,7 +1331,7 @@
                 }
               ]
             },
-            "description": "Semantic response cache statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nReturns total entries, active (non-expired) entries, total hits, and the top 10 most-hit cached questions."
+            "description": "Semantic response cache statistics.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nReturns total entries, active (non-expired) entries, total hits, and the top 10 most-hit cached questions."
           },
           "response": []
         },
@@ -1245,7 +1343,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1266,7 +1364,7 @@
                 "{{app_id}}"
               ]
             },
-            "description": "Per-app semantic response cache statistics.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nSame shape as global cache stats, but filtered to a single app."
+            "description": "Per-app semantic response cache statistics.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nSame shape as global cache stats, but filtered to a single app."
           },
           "response": []
         },
@@ -1278,7 +1376,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1298,7 +1396,7 @@
                 "health"
               ]
             },
-            "description": "LLM provider health check.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nSends a trivial `ping` completion to the configured LLM provider and reports:\n- `status`: `ok` or `error`\n- `model`: the fast model used for the test\n- `latency_ms`: round-trip time in milliseconds\n- `error`: error message if the check failed"
+            "description": "LLM provider health check.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nSends a trivial `ping` completion to the configured LLM provider and reports:\n- `status`: `ok` or `error`\n- `model`: the fast model used for the test\n- `latency_ms`: round-trip time in milliseconds\n- `error`: error message if the check failed"
           },
           "response": []
         },
@@ -1310,7 +1408,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{admin_access_token}}",
                   "type": "string"
                 }
               ]
@@ -1330,7 +1428,7 @@
                 "cost-map"
               ]
             },
-            "description": "Return the active LLM cost configuration.\n\n**Requires admin JWT** (`{{access_token}}`).\n\nShows the effective pricing map used for cost estimation. Merges defaults with any overrides from the `LLM_COST_MAP` environment variable.\n\nPrices are in USD per 1M tokens, split by `input` and `output`."
+            "description": "Return the active LLM cost configuration.\n\n**Requires admin JWT** (`{{admin_access_token}}`).\n\nShows the effective pricing map used for cost estimation. Merges defaults with any overrides from the `LLM_COST_MAP` environment variable.\n\nPrices are in USD per 1M tokens, split by `input` and `output`."
           },
           "response": []
         }

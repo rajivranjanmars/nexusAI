@@ -12,12 +12,12 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 
 from backend_proxy.admin_auth import AdminUserContext
-from backend_proxy.deps import get_admin_scope, require_admin_hybrid, require_app_admin
+from backend_proxy.deps import get_admin_scope, require_app_admin
 from db.crawler import AsyncCrawler
 from db.ingestion import IngestPipeline
 from db.models.knowledge import CrawlJob, CrawlJobPage
@@ -267,16 +267,12 @@ async def crawl_website_endpoint(
 @router.post("/ingest")
 async def ingest_knowledge_endpoint(
     payload: IngestRequest,
-    request: Request,
+    _admin: AdminUserContext = Depends(require_app_admin),
+    scope: str | None = Depends(get_admin_scope),
 ):
-    """Ingest a single piece of knowledge. Accepts app-level or admin dashboard tokens."""
-    user = await require_admin_hybrid(request)
-    if isinstance(user, AdminUserContext):
-        if user.admin_role == "app_admin":
-            payload.app_id = user.app_id
-    else:
-        if user.app_id:
-            payload.app_id = user.app_id
+    """Ingest a single piece of knowledge. Requires an admin dashboard token."""
+    if scope:
+        payload.app_id = scope
     pipeline = IngestPipeline(app_id=payload.app_id)
     
     extracted_text = ""

@@ -23,6 +23,7 @@ os.environ.setdefault("PGVECTOR_URL", "postgresql://user:pass@localhost:5432/tes
 os.environ.setdefault("JWT_SECRET", "test-secret")
 
 from backend_proxy.schemas import ChatFeedbackRequest, ChatFeedbackResponse
+from backend_proxy.admin_auth import AdminUserContext, AdminAuthError
 
 _MODULES_TO_RESET: tuple[str, ...] = (
     "backend_proxy.main",
@@ -57,16 +58,16 @@ def _cleanup_test_modules() -> None:
         delattr(db_package, "postgres")
 
 
-def _build_admin_user() -> Any:
+def _build_admin_user() -> AdminUserContext:
     """Return a representative admin user for dependency overrides."""
 
-    return types.SimpleNamespace(
-        actor_id="admin-1",
-        project_name="admin-app",
-        role="admin",
+    return AdminUserContext(
+        admin_user_id="admin-1",
+        email="admin@example.com",
+        display_name="Admin",
+        admin_role="super_admin",
+        app_id=None,
         token_id="token-1",
-        app_id="00000000-0000-0000-0000-000000000001",
-        actor_type="admin",
     )
 
 
@@ -250,7 +251,7 @@ def test_feedback_list_returns_paginated_results(
             "total": 8,
         }
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "list_feedback", _list_feedback_stub)
 
     response = client.get(
@@ -304,7 +305,7 @@ def test_feedback_list_returns_last_mode_results(
             "total": 2,
         }
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "list_feedback", _list_feedback_stub)
 
     response = client.get(
@@ -340,7 +341,7 @@ def test_feedback_list_filters_by_actor_id(
             "total": 1,
         }
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "list_feedback", _list_feedback_stub)
 
     response = client.get("/api/feedback/all", params={"actor_id": " actor-99 "})
@@ -364,7 +365,7 @@ def test_feedback_list_treats_naive_dates_as_utc(
         assert kwargs["end_date"] == datetime(2026, 1, 2, 0, 0, tzinfo=timezone.utc)
         return {"items": [], "page": 1, "page_size": 50, "total": 0}
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "list_feedback", _list_feedback_stub)
 
     response = client.get(
@@ -393,7 +394,7 @@ def test_feedback_list_normalizes_non_utc_dates(
         assert kwargs["end_date"] == datetime(2026, 1, 1, 1, 0, tzinfo=timezone.utc)
         return {"items": [], "page": 1, "page_size": 50, "total": 0}
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "list_feedback", _list_feedback_stub)
 
     response = client.get(
@@ -420,7 +421,7 @@ def test_feedback_list_rejects_last_with_pagination(
     async def _unused_list_feedback_stub(**kwargs: Any) -> dict[str, Any]:
         raise AssertionError("list_feedback should not be called for invalid query combos")
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "list_feedback", _unused_list_feedback_stub)
 
     response = client.get("/api/feedback/all", params={"last": 5, "page": 1})
@@ -438,7 +439,7 @@ def test_feedback_list_rejects_invalid_date_range_after_normalization(
     async def _admin_override() -> Any:
         return _build_admin_user()
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
 
     response = client.get(
         "/api/feedback/all",
@@ -455,13 +456,13 @@ def test_feedback_list_rejects_non_admin(client: TestClient, proxy_main_module: 
     """The list route should remain admin-only."""
 
     async def _forbidden_override() -> Any:
-        raise proxy_main_module.ProxyAuthError(
+        raise AdminAuthError(
             "Requires admin privileges",
             code="FORBIDDEN_ROLE",
             status_code=403,
         )
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _forbidden_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _forbidden_override
 
     response = client.get("/api/feedback/all")
 
@@ -483,7 +484,7 @@ def test_feedback_detail_returns_record(
         assert feedback_id == "feedback-123"
         return _make_feedback_record("feedback-123", "2026-01-03T00:00:00+00:00")
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "get_feedback_by_id", _get_feedback_stub)
 
     response = client.get("/api/feedback/feedback-123")
@@ -508,7 +509,7 @@ def test_feedback_detail_returns_404_when_missing(
         assert feedback_id == "missing-id"
         return None
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _admin_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _admin_override
     monkeypatch.setattr(proxy_main_module, "get_feedback_by_id", _missing_feedback_stub)
 
     response = client.get("/api/feedback/missing-id")
@@ -521,13 +522,13 @@ def test_feedback_detail_rejects_non_admin(client: TestClient, proxy_main_module
     """The detail route should remain admin-only."""
 
     async def _forbidden_override() -> Any:
-        raise proxy_main_module.ProxyAuthError(
+        raise AdminAuthError(
             "Requires admin privileges",
             code="FORBIDDEN_ROLE",
             status_code=403,
         )
 
-    client.app.dependency_overrides[proxy_main_module.require_admin_hybrid] = _forbidden_override
+    client.app.dependency_overrides[proxy_main_module.require_app_admin] = _forbidden_override
 
     response = client.get("/api/feedback/feedback-123")
 

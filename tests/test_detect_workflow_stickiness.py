@@ -47,6 +47,15 @@ def node(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     monkeypatch.setitem(sys.modules, "llm.classifier", classifier_stub)
     monkeypatch.setitem(sys.modules, "orchestration.workflow_policy", policy_stub)
     monkeypatch.setitem(sys.modules, "orchestration.conversation_memory", memory_stub)
+
+    # The node resolves stickiness from config. app_id "app1" is not in any
+    # registry here, so short-circuit the app-override lookup to platform
+    # defaults rather than reaching for Postgres.
+    import orchestration.workflow_config as workflow_config
+
+    monkeypatch.setattr(workflow_config, "resolve_by_app_id", lambda _app_id: None)
+    workflow_config._config_cache.clear()
+
     sys.modules.pop("orchestration.nodes.detect_workflow_node", None)
 
     module = importlib.import_module("orchestration.nodes.detect_workflow_node")
@@ -78,7 +87,13 @@ async def test_fresh_in_progress_session_stays_sticky(node):
 
 @pytest.mark.asyncio
 async def test_stale_in_progress_session_releases_lock(node):
-    stale_ts = time.time() - node.LEAD_CAPTURE_ABANDON_SECONDS - 1
+    # Read the timeout from config, not a constant — otherwise changing
+    # abandon_after_seconds in yaml leaves this test asserting a stale value.
+    from orchestration.workflow_config import get_workflow_config, sticky_workflow
+
+    config = get_workflow_config("")
+    timeout = config.workflow_response_config[sticky_workflow(config)].abandon_after_seconds
+    stale_ts = time.time() - timeout - 1
     state = _state({"status": "in_progress", "updated_at": stale_ts})
     result = await node.detect_workflow_node(state)
     assert result["detected_workflow"] == "general"

@@ -19,7 +19,7 @@ import jwt
 import uuid
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from fastapi import Depends, FastAPI, Request, Response, Header, HTTPException
+from fastapi import Depends, FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -66,7 +66,6 @@ from backend_proxy.schemas import (
     AppAuditLogEntryResponse,
     AppBootstrapRegistrationRequest,
     AppBootstrapRegistrationResponse,
-    DevAdminTokenMintRequest,
     DevAppTokenMintRequest,
     DevSignedTokenRequest,
     DevSignedTokenResponse,
@@ -97,12 +96,9 @@ from backend_proxy.rag_routes import router as rag_router
 from backend_proxy.observability_routes import router as observability_router
 from backend_proxy.health_monitor import start_health_monitor
 from backend_proxy.deps import (
-    admin_actor_label,
     get_admin_scope,
     get_admin_user,
     get_current_user as _get_current_user,
-    require_admin_hybrid,
-    require_admin_user,
     require_app_admin,
     require_super_admin,
 )
@@ -1170,11 +1166,11 @@ def _authorise_tool(tool_name: str, arguments: Dict[str, Any], user: Authenticat
             status_code=403,
         )
 
-    # Ownership check — non-admins can only access their own data
+    # Ownership check — a token bound to a specific actor may only touch that
+    # actor's data. App/system tokens (no actor_id) are unrestricted.
     target_actor_id = arguments.get("actor_id") or arguments.get("student_id")
     if (
         target_actor_id
-        and user.role not in ("admin", "app")
         and user.actor_id
         and target_actor_id != user.actor_id
     ):
@@ -1296,11 +1292,13 @@ def create_app() -> FastAPI:
     @app.post("/api/apps/register", response_model=AppRegistrationResponse)
     async def register_app(
         payload: AppRegistrationRequest,
-        x_admin_key: str = Header(..., description="Admin login password required for registration")
+        request: Request,
+        _admin: AdminUserContext = Depends(require_super_admin),
     ) -> AppRegistrationResponse:
-        """Dynamically register a new application into the Proxy DB."""
-        if x_admin_key != settings.proxy_admin_login_password:
-            raise HTTPException(status_code=401, detail="Invalid admin key")
+        """Dynamically register a new application into the Proxy DB.
+
+        Requires super admin role.
+        """
 
         # Basic validation (could be more rigorous in production using cryptography package)
         if "-----BEGIN PUBLIC KEY-----" not in payload.public_key:
@@ -1324,6 +1322,17 @@ def create_app() -> FastAPI:
             await session.commit()
             
             logger.info("Dynamically registered new application", extra={"app_id": str(new_app_id), "app_name": payload.name, "domain": payload.domain})
+
+        # ponytail: audit log for admin dashboard app onboarding
+        from backend_proxy.admin_auth import log_admin_action
+        await log_admin_action(
+            admin_user_id=_admin.admin_user_id,
+            action="app.register",
+            target_type="app",
+            target_id=str(new_app_id),
+            details={"name": payload.name, "domain": payload.domain},
+            ip_address=request.client.host if request.client else None,
+        )
 
         return AppRegistrationResponse(
             app_id=str(new_app_id),
@@ -1391,7 +1400,7 @@ def create_app() -> FastAPI:
     @app.get("/api/admin/apps", response_model=List[AdminAppSummaryResponse])
     async def admin_list_apps(
         include_inactive: bool = True,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
         scope: str | None = Depends(get_admin_scope),
     ) -> List[AdminAppSummaryResponse]:
         """List registered applications for admin tooling."""
@@ -1409,7 +1418,7 @@ def create_app() -> FastAPI:
     @app.get("/api/admin/apps/{app_id}", response_model=AdminAppDetailResponse)
     async def admin_get_app(
         app_id: str,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
         scope: str | None = Depends(get_admin_scope),
     ) -> AdminAppDetailResponse:
         """Get detailed information for one registered application."""
@@ -1425,7 +1434,8 @@ def create_app() -> FastAPI:
     async def admin_update_app(
         app_id: str,
         payload: AdminAppUpdateRequest,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        request: Request,
+        _admin: AdminUserContext = Depends(require_app_admin),
         scope: str | None = Depends(get_admin_scope),
     ) -> AdminAppDetailResponse:
         """Update app metadata, routing permissions, and activation state."""
@@ -1455,7 +1465,7 @@ def create_app() -> FastAPI:
 
         await record_app_change(
             app_id=app_id,
-            changed_by=admin_actor_label(_admin),
+            changed_by=_admin.email,
             action="update",
             changes=changes,
         )
@@ -1477,7 +1487,7 @@ def create_app() -> FastAPI:
     @app.post("/api/admin/apps/{app_id}/activate", response_model=AdminAppDetailResponse)
     async def admin_activate_app(
         app_id: str,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
         scope: str | None = Depends(get_admin_scope),
     ) -> AdminAppDetailResponse:
         """Activate a registered application."""
@@ -1498,7 +1508,7 @@ def create_app() -> FastAPI:
         if not was_active:
             await record_app_change(
                 app_id=app_id,
-                changed_by=admin_actor_label(_admin),
+                changed_by=_admin.email,
                 action="activate",
                 changes={"is_active": {"old": False, "new": True}},
             )
@@ -1507,7 +1517,7 @@ def create_app() -> FastAPI:
     @app.post("/api/admin/apps/{app_id}/deactivate", response_model=AdminAppDetailResponse)
     async def admin_deactivate_app(
         app_id: str,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
         scope: str | None = Depends(get_admin_scope),
     ) -> AdminAppDetailResponse:
         """Deactivate a registered application without deleting it."""
@@ -1528,7 +1538,7 @@ def create_app() -> FastAPI:
         if was_active:
             await record_app_change(
                 app_id=app_id,
-                changed_by=admin_actor_label(_admin),
+                changed_by=_admin.email,
                 action="deactivate",
                 changes={"is_active": {"old": True, "new": False}},
             )
@@ -1537,7 +1547,7 @@ def create_app() -> FastAPI:
     @app.post("/api/admin/apps/{app_id}/cache/clear")
     async def admin_clear_app_cache(
         app_id: str,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
         scope: str | None = Depends(get_admin_scope),
     ) -> Dict[str, Any]:
         """Clear semantic response cache for an app."""
@@ -1549,7 +1559,7 @@ def create_app() -> FastAPI:
 
         logger.info(
             "Cache cleared",
-            extra={"event": "cache.cleared", "app_id": app_id, "count": count, "admin": admin_actor_label(_admin)},
+            extra={"event": "cache.cleared", "app_id": app_id, "count": count, "admin": _admin.email},
         )
         return {"app_id": app_id, "cleared": count}
 
@@ -1557,9 +1567,12 @@ def create_app() -> FastAPI:
     async def admin_get_app_audit_log(
         app_id: str,
         limit: int = 100,
-        _admin: AuthenticatedUser = Depends(require_admin_user),
+        _admin: AdminUserContext = Depends(require_app_admin),
+        scope: str | None = Depends(get_admin_scope),
     ) -> List[AppAuditLogEntryResponse]:
         """Return the change history (who/when/what) for one registered app."""
+        if scope and _parse_app_uuid(app_id) != _parse_app_uuid(scope):
+            raise HTTPException(status_code=403, detail="Access denied: app_id mismatch")
         async with get_session() as session:
             app_record = await session.get(App, _parse_app_uuid(app_id))
             if not app_record:
@@ -1574,7 +1587,8 @@ def create_app() -> FastAPI:
     async def admin_set_sms_credentials(
         app_id: str,
         payload: SmsCredentialsRequest,
-        _admin: AuthenticatedUser = Depends(require_admin_user),
+        _admin: AdminUserContext = Depends(require_app_admin),
+        scope: str | None = Depends(get_admin_scope),
     ) -> SmsCredentialsResponse:
         """Store this app's SMS gateway credentials, encrypted at rest.
 
@@ -1583,6 +1597,8 @@ def create_app() -> FastAPI:
         refused if no encryption key is configured (never store what we cannot
         protect or rotate).
         """
+        if scope and _parse_app_uuid(app_id) != _parse_app_uuid(scope):
+            raise HTTPException(status_code=403, detail="Access denied: app_id mismatch")
         # api_url and message_template are validated in SmsCredentialsRequest
         # (both surface a 422). Here we only guard the server-side prerequisite.
         if not sms_encryption_configured():
@@ -1613,13 +1629,13 @@ def create_app() -> FastAPI:
         # Redacted audit entry: record that credentials changed, never values.
         await record_app_change(
             app_id=app_id,
-            changed_by=_admin.actor_id or "unknown-admin",
+            changed_by=_admin.email,
             action="sms_credentials_update",
             changes={"sms_credentials": "updated"},
         )
         logger.info(
             "SMS credentials updated",
-            extra={"event": "otp.creds.updated", "app_id": app_id, "changed_by": _admin.actor_id or "unknown-admin"},
+            extra={"event": "otp.creds.updated", "app_id": app_id, "changed_by": _admin.email},
         )
         return SmsCredentialsResponse(
             configured=True,
@@ -1786,41 +1802,6 @@ def create_app() -> FastAPI:
             signed_token=signed_token,
             request_domain=request_domain,
             force_workflow=payload.force_workflow or "",
-        )
-
-    @app.post("/api/auth/dev/admin-token", response_model=AppTokenResponse)
-    async def mint_dev_admin_token(
-        payload: DevAdminTokenMintRequest,
-        request: Request,
-        response: Response,
-    ) -> AppTokenResponse:
-        """Development-only convenience endpoint that signs an admin JWT from a private key."""
-        rate_limit = await enforce_rate_limit(
-            subject=_client_host(request),
-            scope="auth-app-token",
-        )
-        _apply_rate_limit_headers(response, rate_limit)
-
-        if "-----BEGIN PRIVATE KEY-----" not in payload.private_key:
-            raise HTTPException(status_code=400, detail="Invalid PEM formatted private key")
-
-        signed_token = _sign_app_jwt(
-            app_id=payload.app_id,
-            private_key_pem=payload.private_key,
-            ttl_seconds=payload.jwt_ttl_seconds,
-            actor_id=payload.actor_id,
-            actor_type="admin",
-        )
-
-        request_domain = payload.origin
-        if not request_domain:
-            request_domain = request.headers.get("origin") or request.headers.get("referer") or ""
-        if request_domain.endswith("/"):
-            request_domain = request_domain[:-1]
-
-        return await _issue_proxy_tokens_for_signed_app(
-            signed_token=signed_token,
-            request_domain=request_domain,
         )
 
     # ── Admin Dashboard Auth ──────────────────────────────────────────────
@@ -2498,7 +2479,7 @@ def create_app() -> FastAPI:
     async def admin_list_feedback(
         request: Request,
         query: FeedbackListQuery = Depends(),
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
     ) -> FeedbackListResponse:
         """Return feedback rows for admins in paginated or recent-N mode."""
 
@@ -2525,7 +2506,7 @@ def create_app() -> FastAPI:
     @app.get("/api/feedback/{feedback_id}", response_model=FeedbackRecordResponse)
     async def admin_get_feedback(
         feedback_id: str,
-        _admin: AdminUserContext | AuthenticatedUser = Depends(require_admin_hybrid),
+        _admin: AdminUserContext = Depends(require_app_admin),
     ) -> FeedbackRecordResponse:
         """Return one stored feedback record for admin review."""
 

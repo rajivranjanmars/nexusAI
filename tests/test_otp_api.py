@@ -235,6 +235,7 @@ def harness(monkeypatch) -> Iterator[Any]:
 
     from db.app_registry import AppContext
     from backend_proxy.auth import AuthenticatedUser
+    from backend_proxy.admin_auth import AdminUserContext
 
     # Default per-app state.
     _APP_STATE.clear()
@@ -325,16 +326,19 @@ def harness(monkeypatch) -> Iterator[Any]:
             app_id=APP_ID, actor_type="student", phone="9998887777", phone_verified=True,
         )
 
-    def _admin() -> AuthenticatedUser:
-        return AuthenticatedUser(
-            actor_id="admin-1", project_name="admin", role="admin", token_id="t",
-            app_id=APP_ID, actor_type="admin",
+    def _admin() -> AdminUserContext:
+        return AdminUserContext(
+            admin_user_id="admin-1",
+            email="admin@example.com",
+            display_name="Admin",
+            admin_role="super_admin",
+            app_id=None,
+            token_id="t",
         )
 
     holder["user"] = _guest()
     app.dependency_overrides[proxy_main._get_current_user] = lambda: holder["user"]
-    app.dependency_overrides[proxy_main.require_admin_user] = lambda: _admin()
-    app.dependency_overrides[proxy_main.require_admin_hybrid] = lambda: _admin()
+    app.dependency_overrides[proxy_main.require_app_admin] = lambda: _admin()
     app.dependency_overrides[proxy_main.get_admin_scope] = lambda: None
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -648,3 +652,78 @@ def test_wrong_otp_is_rejected(harness):
         "/api/auth/otp/verify", json={"phone": "9123456700", "otp": wrong}
     )
     assert verify.status_code == 400
+
+
+# ── App registration: require_super_admin is the only auth door ────────────
+
+
+def test_app_register_rejects_legacy_admin_key(harness):
+    """Legacy x-admin-key header must be rejected; only bearer token grants access.
+
+    This test guards against regression: the shared-secret auth door
+    (x-admin-key header checked against proxy_admin_login_password) was removed.
+    An attacker who still sends the old header must be denied access.
+    """
+    # Minimal PEM-formatted public key stub (validator only checks for the marker).
+    public_key = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----"
+
+    resp = harness.client.post(
+        "/api/apps/register",
+        json={
+            "name": "Test App",
+            "domain": "https://example.com",
+            "public_key": public_key,
+            "allowed_workflows": ["general"],
+            "allowed_tools": [],
+        },
+        headers={"x-admin-key": "change-me-admin-login"},
+    )
+    # Missing bearer token → 401 with MISSING_TOKEN code.
+    assert resp.status_code == 401
+    assert resp.json().get("code") == "MISSING_TOKEN"
+
+
+def test_app_register_succeeds_for_super_admin(harness, monkeypatch):
+    """With proper super_admin token, registration succeeds and app_id is returned."""
+    # Minimal PEM-formatted public key stub.
+    public_key = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----"
+
+    # Monkeypatch log_admin_action to a no-op (it's imported inside the handler).
+    async def _noop_log_admin_action(**kwargs):
+        pass
+
+    monkeypatch.setattr("backend_proxy.admin_auth.log_admin_action", _noop_log_admin_action, raising=False)
+
+    # Override require_super_admin for this test only.
+    from backend_proxy.admin_auth import AdminUserContext
+    import backend_proxy.main as proxy_main
+
+    harness.client.app.dependency_overrides[proxy_main.require_super_admin] = lambda: AdminUserContext(
+        admin_user_id="admin-1",
+        email="admin@example.com",
+        display_name="Admin",
+        admin_role="super_admin",
+        app_id=None,
+        token_id="t",
+    )
+
+    try:
+        resp = harness.client.post(
+            "/api/apps/register",
+            json={
+                "name": "Test App",
+                "domain": "https://example.com",
+                "public_key": public_key,
+                "allowed_workflows": ["general"],
+                "allowed_tools": [],
+            },
+        )
+        # Happy path: registration succeeds.
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+        data = resp.json()
+        assert data.get("app_id"), "app_id should not be empty"
+        assert data.get("name") == "Test App"
+        assert data.get("status") == "Registered successfully"
+    finally:
+        # Clean up the dependency override so it doesn't leak into other tests.
+        del harness.client.app.dependency_overrides[proxy_main.require_super_admin]
