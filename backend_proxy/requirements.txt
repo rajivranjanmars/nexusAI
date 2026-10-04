@@ -37,4 +37,4 @@ langchain-core>=0.3.0
 python-json-logger>=2.0
 
 # Metrics
-prometheus-fastapi-instrumentator>=6.1.0
+prometheus-fastapi-instrumentator>=8.1.0
