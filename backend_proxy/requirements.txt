@@ -31,7 +31,7 @@ typing-extensions>=4.0.0
                                                                                                                                                                    
 # Orchestration                                                                                                                                                    
 langgraph>=0.2.0                                                                                                                                                   
-langchain-core>=0.3.0                                                                                                                                              
+langchain-core>=1.6.6                                                                                                                                              
                                                                                                                                                                    
 # Logging                                                                                                                                                          
 python-json-logger>=2.0
