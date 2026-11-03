@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 WORKDIR /app
 COPY mcp_server/requirements.txt .
@@ -9,7 +9,7 @@ COPY backend_proxy/requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ─── Runtime Stage ────────────────────────────────────────────────
-FROM python:3.11-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
